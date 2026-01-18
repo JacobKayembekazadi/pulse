@@ -1,5 +1,6 @@
 // ============================================================================
 // INBOX PAGE - Unified Conversation Management
+// Uses Pulse Visual Design Language (glassmorphism, neon effects, gradients)
 // ============================================================================
 
 import React, { useEffect, useState } from 'react';
@@ -42,7 +43,6 @@ export function InboxPage() {
     try {
       await inboxService.addMessage(selectedConversation.id, { content: replyText });
       setReplyText('');
-      // Refresh conversation
       const updated = await inboxService.getConversation(selectedConversation.id);
       if (updated) {
         setSelectedConversation(updated);
@@ -57,17 +57,17 @@ export function InboxPage() {
 
   const getChannelIcon = (channel: Channel) => {
     switch (channel) {
-      case 'linkedin': return <Icons.LinkedIn className="w-4 h-4" />;
-      case 'twitter': return <Icons.Twitter className="w-4 h-4" />;
-      case 'email': return <Icons.Mail className="w-4 h-4" />;
-      default: return <Icons.MessageSquare className="w-4 h-4" />;
+      case 'linkedin': return <Icons.LinkedIn className="w-4 h-4 text-[#0077b5]" />;
+      case 'twitter': return <Icons.Twitter className="w-4 h-4 text-blue-400" />;
+      case 'email': return <Icons.Mail className="w-4 h-4 text-gray-400" />;
+      default: return <Icons.MessageSquare className="w-4 h-4 text-gray-400" />;
     }
   };
 
   const getStatusColor = (status: ConversationStatus) => {
     switch (status) {
-      case 'open': return 'bg-green-500';
-      case 'pending': return 'bg-yellow-500';
+      case 'open': return 'bg-green-500 shadow-[0_0_8px_#10b981]';
+      case 'pending': return 'bg-yellow-500 shadow-[0_0_8px_#eab308]';
       case 'resolved': return 'bg-gray-500';
       case 'archived': return 'bg-gray-600';
     }
@@ -92,10 +92,10 @@ export function InboxPage() {
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-6">
       {/* Conversation List */}
-      <div className="w-80 flex flex-col bg-[#111113] border border-white/10 rounded-xl overflow-hidden">
+      <div className="w-80 flex flex-col glass-panel border border-primary/20 rounded-xl overflow-hidden shadow-[0_0_30px_-12px_rgba(99,102,241,0.2)]">
         {/* Header */}
         <div className="p-4 border-b border-white/10">
-          <h2 className="font-semibold mb-3">Inbox</h2>
+          <h2 className="font-semibold mb-3 text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">Inbox</h2>
           <div className="flex gap-1">
             {(['open', 'pending', 'resolved'] as ConversationStatus[]).map(status => (
               <button
@@ -106,9 +106,11 @@ export function InboxPage() {
                     ? filters.status.filter(s => s !== status)
                     : [...(filters.status || []), status]
                 })}
-                className={`px-3 py-1 rounded text-xs capitalize transition-colors ${
+                className={`px-3 py-1 rounded text-xs capitalize transition-all hover:scale-105 ${
                   filters.status?.includes(status)
-                    ? 'bg-white/10 text-white'
+                    ? status === 'open' ? 'bg-green-500/20 text-green-400' :
+                      status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                      'bg-gray-500/20 text-gray-400'
                     : 'text-gray-400 hover:bg-white/5'
                 }`}
               >
@@ -122,10 +124,14 @@ export function InboxPage() {
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-32">
-              <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+              <div className="relative w-8 h-8">
+                <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin"></div>
+                <div className="absolute inset-1 border-t-2 border-accent rounded-full animate-spin" style={{ animationDirection: 'reverse' }}></div>
+              </div>
             </div>
           ) : conversations.length === 0 ? (
             <div className="p-4 text-center text-gray-400 text-sm">
+              <Icons.Inbox className="w-8 h-8 mx-auto mb-2 opacity-30" />
               No conversations found
             </div>
           ) : (
@@ -133,27 +139,25 @@ export function InboxPage() {
               <div
                 key={conv.id}
                 onClick={() => setSelectedConversation(conv)}
-                className={`p-4 border-b border-white/5 cursor-pointer transition-colors ${
+                className={`p-4 border-b border-white/5 cursor-pointer transition-all group ${
                   selectedConversation?.id === conv.id
-                    ? 'bg-blue-500/10'
-                    : 'hover:bg-white/5'
+                    ? 'bg-primary/10 border-l-2 border-l-primary'
+                    : 'hover:bg-white/5 border-l-2 border-l-transparent'
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  {/* Status Indicator */}
                   <div className={`w-2 h-2 rounded-full mt-2 ${getStatusColor(conv.status)}`} />
 
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-sm truncate">
+                      <span className="font-medium text-sm truncate group-hover:text-primary transition-colors">
                         {conv.participants.find(p => p.isExternal)?.name || 'Unknown'}
                       </span>
                       <span className="text-gray-400">
                         {getChannelIcon(conv.channel)}
                       </span>
                       {needsReply(conv) && (
-                        <span className="w-2 h-2 bg-red-500 rounded-full" />
+                        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_#ef4444]" />
                       )}
                     </div>
                     <p className="text-xs text-gray-400 truncate">
@@ -161,7 +165,6 @@ export function InboxPage() {
                     </p>
                   </div>
 
-                  {/* Time */}
                   <span className="text-xs text-gray-500">
                     {formatTimeAgo(conv.lastMessageAt)}
                   </span>
@@ -173,13 +176,15 @@ export function InboxPage() {
       </div>
 
       {/* Conversation Detail */}
-      <div className="flex-1 flex flex-col bg-[#111113] border border-white/10 rounded-xl overflow-hidden">
+      <div className="flex-1 flex flex-col glass-panel border border-white/10 rounded-xl overflow-hidden">
         {selectedConversation ? (
           <>
             {/* Header */}
-            <div className="p-4 border-b border-white/10 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between relative overflow-hidden">
+              <div className="absolute -top-20 -left-20 w-40 h-40 bg-primary/10 rounded-full blur-3xl"></div>
+
+              <div className="flex items-center gap-3 relative z-10">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-sm font-medium shadow-[0_0_15px_rgba(99,102,241,0.3)]">
                   {selectedConversation.participants.find(p => p.isExternal)?.name?.substring(0, 2) || '??'}
                 </div>
                 <div>
@@ -199,14 +204,14 @@ export function InboxPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 relative z-10">
                 <select
                   value={selectedConversation.status}
                   onChange={async e => {
                     await inboxService.updateStatus(selectedConversation.id, e.target.value as ConversationStatus);
                     loadConversations();
                   }}
-                  className="bg-black/50 border border-white/10 rounded-lg px-3 py-1.5 text-sm"
+                  className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-primary/50 transition-colors"
                 >
                   <option value="open">Open</option>
                   <option value="pending">Pending</option>
@@ -225,8 +230,8 @@ export function InboxPage() {
                   <div
                     className={`max-w-[70%] rounded-2xl p-4 ${
                       message.sender.isExternal
-                        ? 'bg-white/10 rounded-bl-none'
-                        : 'bg-blue-500 rounded-br-none'
+                        ? 'glass-card rounded-bl-none'
+                        : 'bg-gradient-to-r from-primary to-accent rounded-br-none shadow-[0_0_20px_rgba(99,102,241,0.2)]'
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
@@ -239,19 +244,21 @@ export function InboxPage() {
             </div>
 
             {/* Reply Input */}
-            <div className="p-4 border-t border-white/10">
-              <div className="flex gap-3">
+            <div className="p-4 border-t border-white/10 relative overflow-hidden">
+              <div className="absolute -bottom-20 -right-20 w-40 h-40 bg-accent/10 rounded-full blur-3xl"></div>
+
+              <div className="flex gap-3 relative z-10">
                 <textarea
                   value={replyText}
                   onChange={e => setReplyText(e.target.value)}
                   placeholder="Type your reply..."
                   rows={2}
-                  className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:border-blue-500"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:border-primary/50 transition-colors"
                 />
                 <button
                   onClick={handleSendReply}
                   disabled={!replyText.trim() || isSending}
-                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                  className="px-4 py-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-50 text-white rounded-lg transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:scale-105 disabled:hover:scale-100"
                 >
                   {isSending ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -260,13 +267,13 @@ export function InboxPage() {
                   )}
                 </button>
               </div>
-              <div className="flex items-center gap-3 mt-3">
-                <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
-                  <Icons.Sparkles className="w-3 h-3" />
+              <div className="flex items-center gap-3 mt-3 relative z-10">
+                <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors group">
+                  <Icons.Sparkles className="w-3 h-3 group-hover:scale-110 transition-transform" />
                   AI Draft
                 </button>
-                <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
-                  <Icons.Library className="w-3 h-3" />
+                <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary transition-colors group">
+                  <Icons.Library className="w-3 h-3 group-hover:scale-110 transition-transform" />
                   Templates
                 </button>
               </div>
@@ -275,7 +282,7 @@ export function InboxPage() {
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-400">
             <div className="text-center">
-              <Icons.Inbox className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <Icons.Inbox className="w-12 h-12 mx-auto mb-4 opacity-30" />
               <p>Select a conversation to view</p>
             </div>
           </div>
@@ -284,13 +291,13 @@ export function InboxPage() {
 
       {/* Context Panel */}
       {selectedConversation?.accountId && (
-        <div className="w-72 bg-[#111113] border border-white/10 rounded-xl p-4 overflow-y-auto">
-          <h3 className="font-semibold mb-4">Context</h3>
+        <div className="w-72 glass-panel border border-white/10 rounded-xl p-4 overflow-y-auto">
+          <h3 className="font-semibold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">Context</h3>
 
           <div className="space-y-4">
-            <div className="p-3 bg-white/5 rounded-lg">
+            <div className="glass-card p-3 rounded-lg group hover:border-primary/30">
               <div className="flex items-center gap-2 mb-2">
-                <Icons.Target className="w-4 h-4 text-blue-400" />
+                <Icons.Target className="w-4 h-4 text-primary group-hover:scale-110 transition-transform" />
                 <span className="text-sm font-medium">Account</span>
               </div>
               <p className="text-xs text-gray-400">
@@ -298,9 +305,9 @@ export function InboxPage() {
               </p>
             </div>
 
-            <div className="p-3 bg-white/5 rounded-lg">
+            <div className="glass-card p-3 rounded-lg group hover:border-yellow-500/30">
               <div className="flex items-center gap-2 mb-2">
-                <Icons.Zap className="w-4 h-4 text-yellow-400" />
+                <Icons.Zap className="w-4 h-4 text-yellow-400 group-hover:scale-110 transition-transform" />
                 <span className="text-sm font-medium">Suggested Action</span>
               </div>
               <p className="text-xs text-gray-400">
@@ -313,7 +320,7 @@ export function InboxPage() {
                 <span className="text-xs text-gray-400">Tags</span>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {selectedConversation.tags.map(tag => (
-                    <span key={tag} className="px-2 py-0.5 bg-white/10 text-xs rounded">
+                    <span key={tag} className="px-2 py-0.5 bg-white/10 text-xs rounded hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer">
                       {tag}
                     </span>
                   ))}
