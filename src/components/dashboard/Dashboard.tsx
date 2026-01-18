@@ -81,33 +81,31 @@ const SentimentIndicator = ({ sentiment }: { sentiment: string }) => {
 export function Dashboard() {
   const { accounts, setAccounts } = useAccountsStore();
   const { conversations, setConversations } = useInboxStore();
-  const { posts, setPosts, searchConfig, setSearchConfig, isLive, setIsLive } = usePulseStore();
+  const { posts, addPosts, keywords, setKeywords, platforms, timeframe, isLive, setIsLive } = usePulseStore();
   const { hotMoments, setHotMoments, dismissHotMoment } = useNotificationsStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isPulseLoading, setIsPulseLoading] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
 
   // Fetch social posts
   const fetchPosts = useCallback(async () => {
-    if (!searchConfig.keywords && !searchConfig.brand) return;
+    const searchTerms = keywords.length > 0 ? keywords.join(' ') : searchInput;
+    if (!searchTerms) return;
     setIsPulseLoading(true);
     try {
       const newPosts = await searchService.search({
-        keywords: searchConfig.keywords || searchConfig.brand || 'ABM',
-        platforms: searchConfig.platforms,
-        timeframe: searchConfig.timeframe
+        keywords: searchTerms,
+        platforms: platforms,
+        timeframe: timeframe
       });
-      setPosts(prev => {
-        const existingIds = new Set(prev.map(p => p.id));
-        const uniqueNewPosts = newPosts.filter(p => !existingIds.has(p.id));
-        return [...uniqueNewPosts, ...prev].slice(0, 50);
-      });
+      addPosts(newPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
       setIsPulseLoading(false);
     }
-  }, [searchConfig, setPosts]);
+  }, [keywords, searchInput, platforms, timeframe, addPosts]);
 
   useEffect(() => {
     // Load initial data
@@ -121,9 +119,9 @@ export function Dashboard() {
         setConversations(conversationsResult.data);
         setHotMoments(SAMPLE_HOT_MOMENTS);
 
-        // Set default search config and fetch posts
-        if (!searchConfig.keywords && !searchConfig.brand) {
-          setSearchConfig({ ...searchConfig, keywords: 'ABM outbound sales' });
+        // Set default search input
+        if (keywords.length === 0) {
+          setSearchInput('ABM outbound sales');
         }
       } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -132,14 +130,14 @@ export function Dashboard() {
       }
     };
     loadData();
-  }, [setAccounts, setConversations, setHotMoments]);
+  }, [setAccounts, setConversations, setHotMoments, keywords.length]);
 
-  // Fetch posts when search config changes
+  // Fetch posts when keywords change
   useEffect(() => {
-    if (searchConfig.keywords || searchConfig.brand) {
+    if (keywords.length > 0 || searchInput) {
       fetchPosts();
     }
-  }, [searchConfig.keywords, searchConfig.brand, fetchPosts]);
+  }, [keywords, fetchPosts]);
 
   // Live polling for posts
   useEffect(() => {
@@ -437,8 +435,9 @@ export function Dashboard() {
                 <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <input
                   type="text"
-                  value={searchConfig.keywords || ''}
-                  onChange={(e) => setSearchConfig({ ...searchConfig, keywords: e.target.value })}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && fetchPosts()}
                   placeholder="Track keywords..."
                   className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-primary/50 transition-colors"
                 />
