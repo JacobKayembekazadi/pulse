@@ -9,6 +9,7 @@ import { accountsService } from '../../services/accounts.service';
 import { inboxService } from '../../services/inbox.service';
 import { searchService } from '../../services/search.service';
 import { Icons } from '../shared/Icons';
+import { ReplyModal } from '../shared/ReplyModal';
 import { Account, Conversation, HotMoment, SocialPost } from '../../types';
 
 // Sample hot moments for demo
@@ -87,6 +88,7 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPulseLoading, setIsPulseLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const [replyPost, setReplyPost] = useState<SocialPost | null>(null);
 
   // Fetch social posts
   const fetchPosts = useCallback(async () => {
@@ -492,7 +494,7 @@ export function Dashboard() {
                         <SentimentIndicator sentiment={post.sentiment} />
                       </div>
                       <p className="text-xs text-gray-500 truncate">
-                        @{post.author.handle} · {formatTimeAgo(post.publishedAt)}
+                        @{post.author.handle} · {formatTimeAgo(post.postedAt)}
                       </p>
                     </div>
                     {post.url && (
@@ -521,7 +523,10 @@ export function Dashboard() {
                       <Icons.MessageSquare className="w-3 h-3" />
                       {post.engagement.comments}
                     </span>
-                    <button className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/10 text-primary transition-colors">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setReplyPost(post); }}
+                      className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/10 text-primary transition-colors"
+                    >
                       <Icons.Sparkles className="w-3 h-3" />
                       <span className="font-medium">Reply AI</span>
                     </button>
@@ -532,6 +537,14 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Reply Modal */}
+      {replyPost && (
+        <ReplyModal
+          post={replyPost}
+          onClose={() => setReplyPost(null)}
+        />
+      )}
     </div>
   );
 }

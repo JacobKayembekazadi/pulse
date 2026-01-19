@@ -8,20 +8,42 @@ import {
 } from '../types';
 import { AIService, GeneratedContent, AIGenerateCommentParams, AIGenerateOutreachParams, InsightResult } from './index';
 
-const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+// Load API key from localStorage or environment
+const getApiKey = (): string => {
+  if (typeof window !== 'undefined') {
+    const settings = localStorage.getItem('nexus-settings');
+    if (settings) {
+      const parsed = JSON.parse(settings);
+      if (parsed.state?.aiConfig?.apiKey) {
+        return parsed.state.aiConfig.apiKey;
+      }
+    }
+  }
+  return process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+};
 
 export class GeminiAIService implements AIService {
   private client: GoogleGenAI | null = null;
 
   constructor() {
-    if (API_KEY) {
-      this.client = new GoogleGenAI({ apiKey: API_KEY });
+    this.initializeClient();
+  }
+
+  private initializeClient() {
+    const apiKey = getApiKey();
+    if (apiKey) {
+      this.client = new GoogleGenAI({ apiKey });
     }
   }
 
   private async generate(prompt: string): Promise<string> {
+    // Re-initialize if client is null but API key is now available
     if (!this.client) {
-      throw new Error('AI client not initialized. Please provide an API key.');
+      this.initializeClient();
+    }
+
+    if (!this.client) {
+      throw new Error('AI client not initialized. Please add your Gemini API key in Settings.');
     }
 
     const response = await this.client.models.generateContent({
@@ -30,6 +52,45 @@ export class GeminiAIService implements AIService {
     });
 
     return response.text || '';
+  }
+
+  // Simple comment generation for ReplyModal
+  async generateSimpleComment(params: {
+    post: SocialPost;
+    tone?: string;
+    sop?: SOP;
+    maxLength?: number;
+  }): Promise<string> {
+    const { post, tone = 'helpful', sop, maxLength = 280 } = params;
+
+    const sopInstructions = sop
+      ? `\nFollow this SOP: ${sop.name}\n${sop.content}`
+      : '';
+
+    const prompt = `Generate a ${tone} reply to this ${post.platform} post.
+
+POST:
+Author: ${post.author.name} (${post.author.title || 'Professional'})
+Content: "${post.content}"
+${sopInstructions}
+
+RULES:
+- Keep it under ${maxLength} characters
+- Be ${tone} in tone
+- Add genuine value, don't just agree
+- No hashtags or emojis unless natural
+- Sound human, not like AI
+- Encourage further conversation
+
+Generate ONLY the reply text, nothing else:`;
+
+    try {
+      const response = await this.generate(prompt);
+      return response.trim().replace(/^["']|["']$/g, ''); // Remove quotes if present
+    } catch (error) {
+      console.error('Error generating comment:', error);
+      throw error;
+    }
   }
 
   async generateComment(params: AIGenerateCommentParams): Promise<GeneratedContent> {
