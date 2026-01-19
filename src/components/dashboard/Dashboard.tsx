@@ -492,7 +492,7 @@ export function Dashboard() {
                         <SentimentIndicator sentiment={post.sentiment} />
                       </div>
                       <p className="text-xs text-gray-500 truncate">
-                        @{post.author.handle} · {formatTimeAgo(post.publishedAt)}
+                        @{post.author.handle} · {formatTimeAgo(post.postedAt)}
                       </p>
                     </div>
                     {post.url && (
