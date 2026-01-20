@@ -1,5 +1,6 @@
 // ============================================================================
 // INBOX SERVICE - Unified Conversation Management
+// Now with localStorage persistence via storage.service
 // ============================================================================
 
 import {
@@ -7,8 +8,9 @@ import {
   Channel, ConversationStatus, ConversationPriority, Platform, Participant, Attachment
 } from '../types';
 import { InboxService, CreateConversationInput, CreateMessageInput } from './index';
+import { storage } from './storage.service';
 
-// In-memory storage
+// In-memory cache (synced with localStorage)
 let conversations: Conversation[] = [];
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -147,7 +149,34 @@ const SAMPLE_CONVERSATIONS: Conversation[] = [
   }
 ];
 
-conversations = [...SAMPLE_CONVERSATIONS];
+// Initialize from localStorage or use sample data
+const loadFromStorage = () => {
+  const savedConversations = storage.get<Conversation[]>('nexus-conversations', []);
+  if (savedConversations.length > 0) {
+    // Restore Date objects from JSON
+    conversations = savedConversations.map(conv => ({
+      ...conv,
+      lastMessageAt: new Date(conv.lastMessageAt),
+      createdAt: new Date(conv.createdAt),
+      messages: conv.messages.map(msg => ({
+        ...msg,
+        sentAt: new Date(msg.sentAt),
+        readAt: msg.readAt ? new Date(msg.readAt) : undefined
+      }))
+    }));
+  } else {
+    conversations = [...SAMPLE_CONVERSATIONS];
+    storage.set('nexus-conversations', conversations);
+  }
+};
+
+// Save conversations to localStorage
+const saveToStorage = () => {
+  storage.set('nexus-conversations', conversations);
+};
+
+// Initialize on load
+loadFromStorage();
 
 export class LocalInboxService implements InboxService {
 
@@ -227,6 +256,7 @@ export class LocalInboxService implements InboxService {
     };
 
     conversations.unshift(newConversation);
+    saveToStorage();
     return newConversation;
   }
 
@@ -256,6 +286,7 @@ export class LocalInboxService implements InboxService {
     if (conversation.status === 'open') {
       conversation.status = 'pending';
     }
+    saveToStorage();
 
     return newMessage;
   }
@@ -275,18 +306,21 @@ export class LocalInboxService implements InboxService {
       capacity: { maxAccounts: 50, currentAccounts: 10 },
       performance: { responsesThisWeek: 0, avgResponseTime: 0, meetingsBooked: 0 }
     };
+    saveToStorage();
   }
 
   async updateStatus(id: string, status: ConversationStatus): Promise<void> {
     const conversation = conversations.find(c => c.id === id);
     if (!conversation) throw new Error('Conversation not found');
     conversation.status = status;
+    saveToStorage();
   }
 
   async updatePriority(id: string, priority: ConversationPriority): Promise<void> {
     const conversation = conversations.find(c => c.id === id);
     if (!conversation) throw new Error('Conversation not found');
     conversation.priority = priority;
+    saveToStorage();
   }
 
   async addTag(id: string, tag: string): Promise<void> {
@@ -294,6 +328,7 @@ export class LocalInboxService implements InboxService {
     if (!conversation) throw new Error('Conversation not found');
     if (!conversation.tags.includes(tag)) {
       conversation.tags.push(tag);
+      saveToStorage();
     }
   }
 
@@ -301,6 +336,7 @@ export class LocalInboxService implements InboxService {
     const conversation = conversations.find(c => c.id === id);
     if (!conversation) throw new Error('Conversation not found');
     conversation.tags = conversation.tags.filter(t => t !== tag);
+    saveToStorage();
   }
 
   async syncFromPlatform(platform: Platform): Promise<{ added: number; updated: number }> {
@@ -330,6 +366,9 @@ export class LocalInboxService implements InboxService {
       }
     }
 
+    if (added > 0) {
+      saveToStorage();
+    }
     return { added, updated: 0 };
   }
 
