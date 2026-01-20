@@ -1,5 +1,6 @@
 // ============================================================================
-// AI SERVICE - Gemini/Claude/OpenAI Integration
+// AI SERVICE - Multi-Provider Support (Gemini, OpenAI, Anthropic)
+// Production-ready with proper provider switching
 // ============================================================================
 
 import { GoogleGenAI } from '@google/genai';
@@ -8,60 +9,226 @@ import {
 } from '../types';
 import { AIService, GeneratedContent, AIGenerateCommentParams, AIGenerateOutreachParams, InsightResult } from './index';
 
-// Load API key from localStorage or environment (Vite-compatible)
-const getApiKey = (): string => {
-  // First check localStorage (user-configured in Settings)
+type AIProvider = 'google' | 'openai' | 'anthropic';
+
+interface AIConfig {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+  settings: {
+    temperature: number;
+    maxTokens?: number;
+    defaultTone: string;
+  };
+}
+
+// Get AI config from localStorage or environment
+const getAIConfig = (): AIConfig => {
+  const defaults: AIConfig = {
+    provider: 'google',
+    apiKey: '',
+    model: 'gemini-2.0-flash',
+    settings: {
+      temperature: 0.7,
+      maxTokens: 1000,
+      defaultTone: 'professional'
+    }
+  };
+
+  // Check localStorage first (user-configured in Settings)
   if (typeof window !== 'undefined') {
     const settings = localStorage.getItem('nexus-settings');
     if (settings) {
       try {
         const parsed = JSON.parse(settings);
-        if (parsed.state?.aiConfig?.apiKey) {
-          return parsed.state.aiConfig.apiKey;
+        if (parsed.state?.aiConfig) {
+          return {
+            provider: parsed.state.aiConfig.provider || defaults.provider,
+            apiKey: parsed.state.aiConfig.apiKey || '',
+            model: parsed.state.aiConfig.model || defaults.model,
+            settings: {
+              temperature: parsed.state.aiConfig.settings?.temperature ?? defaults.settings.temperature,
+              maxTokens: parsed.state.aiConfig.settings?.maxTokens ?? defaults.settings.maxTokens,
+              defaultTone: parsed.state.aiConfig.settings?.defaultTone || defaults.settings.defaultTone
+            }
+          };
         }
       } catch (e) {
-        console.warn('Error parsing settings from localStorage:', e);
+        console.warn('Error parsing AI config from localStorage:', e);
       }
     }
   }
 
-  // Fall back to environment variables (Vite syntax for browser)
-  // VITE_ prefix is required for client-side access
-  return import.meta.env.VITE_GEMINI_API_KEY ||
-         import.meta.env.VITE_API_KEY ||
-         '';
-};
+  // Fall back to environment variables
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY ||
+                 import.meta.env.VITE_OPENAI_API_KEY ||
+                 import.meta.env.VITE_ANTHROPIC_API_KEY || '';
 
-export class GeminiAIService implements AIService {
-  private client: GoogleGenAI | null = null;
-
-  constructor() {
-    this.initializeClient();
+  if (import.meta.env.VITE_OPENAI_API_KEY) {
+    defaults.provider = 'openai';
+    defaults.model = 'gpt-4o-mini';
+  } else if (import.meta.env.VITE_ANTHROPIC_API_KEY) {
+    defaults.provider = 'anthropic';
+    defaults.model = 'claude-3-5-haiku-20241022';
   }
 
-  private initializeClient() {
-    const apiKey = getApiKey();
-    if (apiKey) {
-      this.client = new GoogleGenAI({ apiKey });
+  defaults.apiKey = envKey;
+  return defaults;
+};
+
+// ============================================================================
+// GEMINI PROVIDER
+// ============================================================================
+class GeminiProvider {
+  private client: GoogleGenAI;
+
+  constructor(apiKey: string) {
+    this.client = new GoogleGenAI({ apiKey });
+  }
+
+  async generate(prompt: string, model: string, temperature: number): Promise<string> {
+    const response = await this.client.models.generateContent({
+      model: model || 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature
+      }
+    });
+    return response.text || '';
+  }
+}
+
+// ============================================================================
+// OPENAI PROVIDER
+// ============================================================================
+class OpenAIProvider {
+  private apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async generate(prompt: string, model: string, temperature: number): Promise<string> {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model || 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature,
+        max_tokens: 1000
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'OpenAI API error');
     }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || '';
+  }
+}
+
+// ============================================================================
+// ANTHROPIC PROVIDER
+// ============================================================================
+class AnthropicProvider {
+  private apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async generate(prompt: string, model: string, temperature: number): Promise<string> {
+    // Note: Anthropic requires server-side calls due to CORS
+    // For browser-based apps, you'd need a proxy endpoint
+    // This implementation assumes a proxy at /api/anthropic or direct server usage
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true' // For development only
+      },
+      body: JSON.stringify({
+        model: model || 'claude-3-5-haiku-20241022',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }],
+        temperature
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Anthropic API error');
+    }
+
+    const data = await response.json();
+    return data.content[0]?.text || '';
+  }
+}
+
+// ============================================================================
+// MULTI-PROVIDER AI SERVICE
+// ============================================================================
+export class MultiProviderAIService implements AIService {
+  private config: AIConfig;
+  private provider: GeminiProvider | OpenAIProvider | AnthropicProvider | null = null;
+
+  constructor() {
+    this.config = getAIConfig();
+    this.initializeProvider();
+  }
+
+  private initializeProvider() {
+    if (!this.config.apiKey) {
+      this.provider = null;
+      return;
+    }
+
+    switch (this.config.provider) {
+      case 'google':
+        this.provider = new GeminiProvider(this.config.apiKey);
+        break;
+      case 'openai':
+        this.provider = new OpenAIProvider(this.config.apiKey);
+        break;
+      case 'anthropic':
+        this.provider = new AnthropicProvider(this.config.apiKey);
+        break;
+    }
+  }
+
+  // Refresh config and provider (call when settings change)
+  public refresh() {
+    this.config = getAIConfig();
+    this.initializeProvider();
   }
 
   private async generate(prompt: string): Promise<string> {
-    // Re-initialize if client is null but API key is now available
-    if (!this.client) {
-      this.initializeClient();
+    // Re-check config in case it changed
+    const currentConfig = getAIConfig();
+    if (currentConfig.apiKey !== this.config.apiKey || currentConfig.provider !== this.config.provider) {
+      this.config = currentConfig;
+      this.initializeProvider();
     }
 
-    if (!this.client) {
-      throw new Error('AI client not initialized. Please add your Gemini API key in Settings.');
+    if (!this.provider) {
+      throw new Error(`AI not configured. Please add your ${this.config.provider === 'google' ? 'Gemini' : this.config.provider === 'openai' ? 'OpenAI' : 'Anthropic'} API key in Settings.`);
     }
 
-    const response = await this.client.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: prompt,
-    });
+    return this.provider.generate(prompt, this.config.model, this.config.settings.temperature);
+  }
 
-    return response.text || '';
+  // Get current provider name for UI display
+  getProviderName(): string {
+    const names = { google: 'Gemini', openai: 'OpenAI', anthropic: 'Claude' };
+    return names[this.config.provider];
   }
 
   // Simple comment generation for ReplyModal
@@ -259,7 +426,9 @@ Format your response as JSON:
 
     try {
       const response = await this.generate(prompt);
-      const parsed = JSON.parse(response);
+      // Try to parse JSON, handling potential markdown code blocks
+      const jsonStr = response.replace(/```json\n?|\n?```/g, '').trim();
+      const parsed = JSON.parse(jsonStr);
 
       return {
         summary: parsed.summary || 'Unable to generate summary.',
@@ -294,7 +463,8 @@ Response format: {"sentiment": "positive|neutral|negative", "score": 0.0-1.0}`;
 
     try {
       const response = await this.generate(prompt);
-      const parsed = JSON.parse(response);
+      const jsonStr = response.replace(/```json\n?|\n?```/g, '').trim();
+      const parsed = JSON.parse(jsonStr);
       return {
         sentiment: parsed.sentiment || 'neutral',
         score: parsed.score || 0.5
@@ -349,7 +519,8 @@ Respond with a JSON array of intent signals found, or empty array if none:
 
     try {
       const response = await this.generate(prompt);
-      return JSON.parse(response) || [];
+      const jsonStr = response.replace(/```json\n?|\n?```/g, '').trim();
+      return JSON.parse(jsonStr) || [];
     } catch {
       return [];
     }
@@ -380,4 +551,4 @@ Provide the revised message only, no explanation:`;
 }
 
 // Export singleton instance
-export const aiService = new GeminiAIService();
+export const aiService = new MultiProviderAIService();
