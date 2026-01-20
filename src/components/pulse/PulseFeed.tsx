@@ -8,6 +8,7 @@ import { searchService } from '../../services/search.service';
 import { aiService } from '../../services/ai.service';
 import { contentService } from '../../services/content.service';
 import { Icons } from '../shared/Icons';
+import { toast } from '../shared/Toast';
 import { SocialPost, Platform, TimeFrame, SOP } from '../../types';
 
 const PLATFORMS: { id: Platform; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -58,8 +59,12 @@ export function PulseFeed() {
         maxResults: 20
       });
       setPosts(results);
+      if (results.length === 0) {
+        toast.info('No results found', 'Try different keywords or expand your search filters');
+      }
     } catch (error) {
       console.error('Search error:', error);
+      toast.error('Search failed', 'Please check your API configuration in Settings');
     } finally {
       setIsSearching(false);
     }
@@ -84,6 +89,7 @@ export function PulseFeed() {
       setGeneratedComments(prev => ({ ...prev, [post.id]: result.content }));
     } catch (error) {
       console.error('Error generating comment:', error);
+      toast.error('AI generation failed', 'Please configure your AI API key in Settings');
     } finally {
       setGeneratingFor(null);
     }
@@ -94,6 +100,7 @@ export function PulseFeed() {
     if (comment) {
       navigator.clipboard.writeText(comment);
       setCopiedId(postId);
+      toast.success('Copied!', 'Comment copied to clipboard');
       setTimeout(() => setCopiedId(null), 2000);
     }
   };
