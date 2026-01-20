@@ -8,18 +8,28 @@ import {
 } from '../types';
 import { AIService, GeneratedContent, AIGenerateCommentParams, AIGenerateOutreachParams, InsightResult } from './index';
 
-// Load API key from localStorage or environment
+// Load API key from localStorage or environment (Vite-compatible)
 const getApiKey = (): string => {
+  // First check localStorage (user-configured in Settings)
   if (typeof window !== 'undefined') {
     const settings = localStorage.getItem('nexus-settings');
     if (settings) {
-      const parsed = JSON.parse(settings);
-      if (parsed.state?.aiConfig?.apiKey) {
-        return parsed.state.aiConfig.apiKey;
+      try {
+        const parsed = JSON.parse(settings);
+        if (parsed.state?.aiConfig?.apiKey) {
+          return parsed.state.aiConfig.apiKey;
+        }
+      } catch (e) {
+        console.warn('Error parsing settings from localStorage:', e);
       }
     }
   }
-  return process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+
+  // Fall back to environment variables (Vite syntax for browser)
+  // VITE_ prefix is required for client-side access
+  return import.meta.env.VITE_GEMINI_API_KEY ||
+         import.meta.env.VITE_API_KEY ||
+         '';
 };
 
 export class GeminiAIService implements AIService {
