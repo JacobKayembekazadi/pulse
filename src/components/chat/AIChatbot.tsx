@@ -14,6 +14,122 @@ interface Message {
   timestamp: Date;
 }
 
+// Simple markdown renderer for chat messages
+const renderMarkdown = (text: string) => {
+  // Split into lines for processing
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeContent: string[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      elements.push(
+        <ul key={`list-${elements.length}`} className="list-disc list-inside space-y-1 my-2">
+          {listItems.map((item, i) => (
+            <li key={i} className="text-sm">{processInline(item)}</li>
+          ))}
+        </ul>
+      );
+      listItems = [];
+    }
+  };
+
+  const processInline = (line: string): React.ReactNode => {
+    // Process inline formatting: **bold**, *italic*, `code`
+    const parts: React.ReactNode[] = [];
+    let remaining = line;
+    let key = 0;
+
+    while (remaining.length > 0) {
+      // Bold **text**
+      const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+      // Inline code `code`
+      const codeMatch = remaining.match(/`([^`]+)`/);
+
+      const matches = [
+        boldMatch ? { type: 'bold', match: boldMatch, index: boldMatch.index! } : null,
+        codeMatch ? { type: 'code', match: codeMatch, index: codeMatch.index! } : null,
+      ].filter(Boolean).sort((a, b) => a!.index - b!.index);
+
+      if (matches.length === 0) {
+        parts.push(remaining);
+        break;
+      }
+
+      const first = matches[0]!;
+      if (first.index > 0) {
+        parts.push(remaining.substring(0, first.index));
+      }
+
+      if (first.type === 'bold') {
+        parts.push(<strong key={key++} className="font-semibold">{first.match![1]}</strong>);
+      } else if (first.type === 'code') {
+        parts.push(<code key={key++} className="px-1.5 py-0.5 bg-white/10 rounded text-xs font-mono">{first.match![1]}</code>);
+      }
+
+      remaining = remaining.substring(first.index + first.match![0].length);
+    }
+
+    return parts.length === 1 ? parts[0] : <>{parts}</>;
+  };
+
+  lines.forEach((line, lineIndex) => {
+    // Code block
+    if (line.startsWith('```')) {
+      if (inCodeBlock) {
+        elements.push(
+          <pre key={`code-${elements.length}`} className="bg-black/50 rounded-lg p-3 my-2 overflow-x-auto">
+            <code className="text-xs font-mono text-green-400">{codeContent.join('\n')}</code>
+          </pre>
+        );
+        codeContent = [];
+        inCodeBlock = false;
+      } else {
+        flushList();
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeContent.push(line);
+      return;
+    }
+
+    // Bullet points
+    if (line.match(/^[\-\*]\s/)) {
+      listItems.push(line.replace(/^[\-\*]\s/, ''));
+      return;
+    }
+
+    // Numbered list
+    if (line.match(/^\d+\.\s/)) {
+      listItems.push(line.replace(/^\d+\.\s/, ''));
+      return;
+    }
+
+    // Flush list if we hit a non-list line
+    flushList();
+
+    // Empty line
+    if (line.trim() === '') {
+      elements.push(<div key={`br-${lineIndex}`} className="h-2" />);
+      return;
+    }
+
+    // Regular paragraph
+    elements.push(
+      <p key={`p-${lineIndex}`} className="text-sm">{processInline(line)}</p>
+    );
+  });
+
+  flushList();
+
+  return <div className="space-y-1">{elements}</div>;
+};
+
 // Get API key from all possible sources
 const getAvailableAIConfig = () => {
   // Check env vars first
@@ -294,7 +410,11 @@ Respond helpfully and concisely:`;
                         : 'bg-white/10 text-gray-100 rounded-bl-md'
                     }`}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    {message.role === 'assistant' ? (
+                      renderMarkdown(message.content)
+                    ) : (
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    )}
                     <p className="text-[10px] opacity-50 mt-1">
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
