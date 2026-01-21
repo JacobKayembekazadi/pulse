@@ -11,6 +11,20 @@ import { SearchService, SearchParams } from './index';
 const getApiKey = (key: string): string => {
   // First check localStorage (user-configured in Settings)
   if (typeof window !== 'undefined') {
+    // Check nexus-api-keys first (where setup wizard saves)
+    const apiKeys = localStorage.getItem('nexus-api-keys');
+    if (apiKeys && key === 'apify') {
+      try {
+        const parsed = JSON.parse(apiKeys);
+        if (parsed.apifyKey) {
+          return parsed.apifyKey;
+        }
+      } catch (e) {
+        console.warn('Error parsing nexus-api-keys:', e);
+      }
+    }
+
+    // Check nexus-settings (where settings panel saves)
     const settings = localStorage.getItem('nexus-settings');
     if (settings) {
       try {
