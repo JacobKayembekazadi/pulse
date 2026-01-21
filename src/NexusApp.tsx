@@ -2,8 +2,8 @@
 // NEXUS APP - Main Application Component
 // ============================================================================
 
-import React from 'react';
-import { useAppStore } from './store';
+import React, { useState, useEffect } from 'react';
+import { useAppStore, useSettingsStore } from './store';
 import { AppShell } from './components/AppShell';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { Dashboard } from './components/dashboard/Dashboard';
@@ -14,6 +14,10 @@ import { CampaignsPage } from './components/campaigns/CampaignsPage';
 import { CompetePage } from './components/compete/CompetePage';
 import { LibraryPage } from './components/library/LibraryPage';
 import { AnalyticsPage } from './components/analytics/AnalyticsPage';
+import { SetupWizard } from './components/onboarding/SetupWizard';
+import { storage } from './services/storage.service';
+import { Icons } from './components/shared/Icons';
+import { ToastContainer } from './components/shared/Toast';
 
 // Placeholder components for pages not yet implemented
 const PlaceholderPage = ({ title }: { title: string }) => (
@@ -74,8 +78,78 @@ const AnalyticsPageComponent = () => {
   }
 };
 
+// Demo Data Banner - shows when APIs aren't configured
+function DemoDataBanner({ onConfigure }: { onConfigure: () => void }) {
+  const { aiConfig } = useSettingsStore();
+  const apifyKey = storage.get<{ apifyKey?: string }>('nexus-api-keys', {}).apifyKey;
+
+  // Don't show if both are configured
+  if (aiConfig.apiKey && apifyKey) return null;
+
+  return (
+    <div className="mx-6 mt-4 px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <Icons.AlertTriangle className="w-5 h-5 text-yellow-400" />
+        <div>
+          <span className="text-yellow-400 font-medium">Demo Mode Active</span>
+          <span className="text-gray-400 text-sm ml-2">
+            {!aiConfig.apiKey && !apifyKey
+              ? "AI features and live data disabled. Using sample data."
+              : !aiConfig.apiKey
+                ? "AI reply generation disabled."
+                : "Live data disabled. Using sample posts."}
+          </span>
+        </div>
+      </div>
+      <button
+        onClick={onConfigure}
+        className="px-3 py-1.5 text-sm bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg transition-colors"
+      >
+        Configure APIs
+      </button>
+    </div>
+  );
+}
+
 function NexusApp() {
   const { activeTab } = useAppStore();
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Check if first-time user on mount
+  useEffect(() => {
+    const setupComplete = storage.get<boolean>('nexus-setup-complete', false);
+    if (!setupComplete) {
+      setShowSetupWizard(true);
+    }
+    setIsInitialized(true);
+  }, []);
+
+  const handleSetupComplete = () => {
+    setShowSetupWizard(false);
+  };
+
+  const handleOpenSetup = () => {
+    // Reset setup flag temporarily to show wizard again
+    setShowSetupWizard(true);
+  };
+
+  // Don't render until we've checked setup status
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 border-t-2 border-primary rounded-full animate-spin"></div>
+          <div className="absolute inset-2 border-t-2 border-accent rounded-full animate-spin" style={{ animationDirection: 'reverse' }}></div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show setup wizard for first-time users
+  if (showSetupWizard) {
+    return <SetupWizard onComplete={handleSetupComplete} />;
+  }
 
   const renderPage = () => {
     switch (activeTab) {
@@ -103,9 +177,11 @@ function NexusApp() {
   return (
     <>
       <AppShell>
+        <DemoDataBanner onConfigure={handleOpenSetup} />
         {renderPage()}
       </AppShell>
       <SettingsPanel />
+      <ToastContainer />
     </>
   );
 }

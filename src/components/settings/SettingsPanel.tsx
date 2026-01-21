@@ -2,12 +2,15 @@
 // SETTINGS PANEL - Integrations, AI Config, and Preferences
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore, useSettingsStore } from '../../store';
 import { Icons } from '../shared/Icons';
 import { Integration, IntegrationProvider } from '../../types';
+import { storage } from '../../services/storage.service';
+import { toast } from '../shared/Toast';
 
 type SettingsSection = 'social' | 'abm' | 'ai' | 'mcp' | 'team';
+type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 
 const sections = [
   { id: 'social', label: 'Social Listening', icon: Icons.MessageSquare },
@@ -58,6 +61,131 @@ export function SettingsPanel() {
   const [enabledIntegrations, setEnabledIntegrations] = useState<Record<string, boolean>>({});
   const [mcpEnabled, setMcpEnabled] = useState<Record<string, boolean>>({});
 
+  // API Testing state
+  const [aiTestStatus, setAiTestStatus] = useState<TestStatus>('idle');
+  const [apifyTestStatus, setApifyTestStatus] = useState<TestStatus>('idle');
+  const [testError, setTestError] = useState<string>('');
+
+  // Load existing Apify key
+  useEffect(() => {
+    const savedKeys = storage.get<{ apifyKey?: string }>('nexus-api-keys', {});
+    if (savedKeys.apifyKey) {
+      setApiKeys(prev => ({ ...prev, apify: savedKeys.apifyKey || '' }));
+    }
+  }, []);
+
+  // Test Gemini API key
+  const testGeminiKey = async () => {
+    if (!aiConfig.apiKey) return;
+
+    setAiTestStatus('testing');
+    setTestError('');
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiConfig.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Say "connected" in one word' }] }]
+          })
+        }
+      );
+
+      if (response.ok) {
+        setAiTestStatus('success');
+      } else {
+        const data = await response.json();
+        setTestError(data.error?.message || 'Invalid API key');
+        setAiTestStatus('error');
+      }
+    } catch (err) {
+      setTestError('Network error - please try again');
+      setAiTestStatus('error');
+    }
+  };
+
+  // Test OpenAI API key
+  const testOpenAIKey = async () => {
+    if (!aiConfig.apiKey) return;
+
+    setAiTestStatus('testing');
+    setTestError('');
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${aiConfig.apiKey}` }
+      });
+
+      if (response.ok) {
+        setAiTestStatus('success');
+      } else {
+        setTestError('Invalid API key');
+        setAiTestStatus('error');
+      }
+    } catch (err) {
+      setTestError('Network error - please try again');
+      setAiTestStatus('error');
+    }
+  };
+
+  // Test Anthropic API key
+  const testAnthropicKey = async () => {
+    if (!aiConfig.apiKey) return;
+
+    setAiTestStatus('testing');
+    setTestError('');
+
+    try {
+      // Note: Anthropic doesn't have a simple test endpoint, so we just validate format
+      if (aiConfig.apiKey.startsWith('sk-ant-')) {
+        setAiTestStatus('success');
+      } else {
+        setTestError('Invalid key format - should start with sk-ant-');
+        setAiTestStatus('error');
+      }
+    } catch (err) {
+      setTestError('Validation error');
+      setAiTestStatus('error');
+    }
+  };
+
+  // Test current AI provider
+  const testAIKey = () => {
+    switch (aiConfig.provider) {
+      case 'google':
+        testGeminiKey();
+        break;
+      case 'openai':
+        testOpenAIKey();
+        break;
+      case 'anthropic':
+        testAnthropicKey();
+        break;
+    }
+  };
+
+  // Test Apify API key
+  const testApifyKey = async () => {
+    const apifyKey = apiKeys['apify'];
+    if (!apifyKey) return;
+
+    setApifyTestStatus('testing');
+
+    try {
+      const response = await fetch(`https://api.apify.com/v2/users/me?token=${apifyKey}`);
+
+      if (response.ok) {
+        setApifyTestStatus('success');
+      } else {
+        setApifyTestStatus('error');
+      }
+    } catch (err) {
+      setApifyTestStatus('error');
+    }
+  };
+
   if (!showSettings) return null;
 
   const handleSave = () => {
@@ -75,6 +203,11 @@ export function SettingsPanel() {
       });
     }
 
+    // Save Apify key to storage
+    if (apiKeys['apify']) {
+      storage.set('nexus-api-keys', { apifyKey: apiKeys['apify'] });
+    }
+
     // ABM providers
     abmProviders.forEach(p => {
       if (enabledIntegrations[p.id] && apiKeys[p.id]) {
@@ -90,6 +223,7 @@ export function SettingsPanel() {
 
     setIntegrations(newIntegrations);
     setShowSettings(false);
+    toast.success('Settings saved', 'Your configuration has been updated');
   };
 
   return (
@@ -194,13 +328,46 @@ export function SettingsPanel() {
                     {selectedSocialProvider === provider.id && provider.id !== 'google' && (
                       <div className="mt-4 pt-4 border-t border-white/10">
                         <label className="block text-sm text-gray-400 mb-2">API Key</label>
-                        <input
-                          type="password"
-                          placeholder={`${provider.id}_api_key...`}
-                          value={apiKeys[provider.id] || ''}
-                          onChange={e => setApiKeys({ ...apiKeys, [provider.id]: e.target.value })}
-                          className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
-                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            placeholder={provider.id === 'apify' ? 'apify_api_...' : `${provider.id}_api_key...`}
+                            value={apiKeys[provider.id] || ''}
+                            onChange={e => {
+                              setApiKeys({ ...apiKeys, [provider.id]: e.target.value });
+                              if (provider.id === 'apify') setApifyTestStatus('idle');
+                            }}
+                            className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                          />
+                          {provider.id === 'apify' && (
+                            <button
+                              onClick={testApifyKey}
+                              disabled={!apiKeys['apify'] || apifyTestStatus === 'testing'}
+                              className="px-4 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 text-sm"
+                            >
+                              {apifyTestStatus === 'testing' ? (
+                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              ) : (
+                                <>
+                                  <Icons.Zap className="w-4 h-4" />
+                                  Test
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        {provider.id === 'apify' && apifyTestStatus === 'success' && (
+                          <p className="text-green-400 text-sm mt-2 flex items-center gap-1">
+                            <Icons.Check className="w-4 h-4" />
+                            Apify connection verified!
+                          </p>
+                        )}
+                        {provider.id === 'apify' && apifyTestStatus === 'error' && (
+                          <p className="text-red-400 text-sm mt-2 flex items-center gap-1">
+                            <Icons.X className="w-4 h-4" />
+                            Invalid API token
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -334,13 +501,49 @@ export function SettingsPanel() {
                 {/* API Key */}
                 <div>
                   <label className="block text-sm font-medium mb-2">API Key</label>
-                  <input
-                    type="password"
-                    placeholder="sk-..."
-                    value={aiConfig.apiKey}
-                    onChange={e => setAIConfig({ ...aiConfig, apiKey: e.target.value })}
-                    className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      placeholder={aiConfig.provider === 'google' ? 'AIza...' : aiConfig.provider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                      value={aiConfig.apiKey}
+                      onChange={e => {
+                        setAIConfig({ ...aiConfig, apiKey: e.target.value });
+                        setAiTestStatus('idle');
+                      }}
+                      className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                    <button
+                      onClick={testAIKey}
+                      disabled={!aiConfig.apiKey || aiTestStatus === 'testing'}
+                      className="px-4 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 text-sm"
+                    >
+                      {aiTestStatus === 'testing' ? (
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Icons.Zap className="w-4 h-4" />
+                          Test
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {aiTestStatus === 'success' && (
+                    <p className="text-green-400 text-sm mt-2 flex items-center gap-1">
+                      <Icons.Check className="w-4 h-4" />
+                      API key verified successfully!
+                    </p>
+                  )}
+                  {aiTestStatus === 'error' && (
+                    <p className="text-red-400 text-sm mt-2 flex items-center gap-1">
+                      <Icons.X className="w-4 h-4" />
+                      {testError || 'Invalid API key'}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2">
+                    {aiConfig.provider === 'google' && 'Get a free key at makersuite.google.com'}
+                    {aiConfig.provider === 'openai' && 'Get a key at platform.openai.com'}
+                    {aiConfig.provider === 'anthropic' && 'Get a key at console.anthropic.com'}
+                  </p>
                 </div>
 
                 {/* Temperature */}

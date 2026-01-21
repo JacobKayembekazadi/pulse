@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { useContentStore } from '../../store';
 import { contentService } from '../../services/content.service';
 import { Icons } from '../shared/Icons';
-import { ContentTemplate, SOP } from '../../types';
+import { ContentTemplate, SOP, ContentType, SOPType } from '../../types';
 
 type Tab = 'templates' | 'sops';
 
@@ -15,6 +15,24 @@ export function LibraryPage() {
   const { templates, setTemplates, sops, setSOPs } = useContentStore();
   const [activeTab, setActiveTab] = useState<Tab>('templates');
   const [isLoading, setIsLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // New template form state
+  const [newTemplate, setNewTemplate] = useState({
+    name: '',
+    type: 'social_comment' as ContentType,
+    category: '',
+    content: ''
+  });
+
+  // New SOP form state
+  const [newSOP, setNewSOP] = useState({
+    name: '',
+    type: 'tone' as SOPType,
+    category: '',
+    content: '',
+    priority: 1
+  });
 
   useEffect(() => {
     loadContent();
@@ -45,6 +63,64 @@ export function LibraryPage() {
     }
   };
 
+  const handleAddTemplate = async () => {
+    if (!newTemplate.name || !newTemplate.content) return;
+
+    try {
+      await contentService.createTemplate({
+        name: newTemplate.name,
+        type: newTemplate.type,
+        category: newTemplate.category || 'General',
+        content: newTemplate.content,
+        tags: []
+      });
+      setShowAddModal(false);
+      setNewTemplate({ name: '', type: 'social_comment', category: '', content: '' });
+      loadContent();
+    } catch (error) {
+      console.error('Error creating template:', error);
+    }
+  };
+
+  const handleAddSOP = async () => {
+    if (!newSOP.name || !newSOP.content) return;
+
+    try {
+      await contentService.createSOP({
+        name: newSOP.name,
+        type: newSOP.type,
+        category: newSOP.category || 'General',
+        content: newSOP.content,
+        conditions: [],
+        priority: newSOP.priority,
+        isActive: true
+      });
+      setShowAddModal(false);
+      setNewSOP({ name: '', type: 'tone', category: '', content: '', priority: 1 });
+      loadContent();
+    } catch (error) {
+      console.error('Error creating SOP:', error);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    try {
+      await contentService.deleteTemplate(id);
+      loadContent();
+    } catch (error) {
+      console.error('Error deleting template:', error);
+    }
+  };
+
+  const handleDeleteSOP = async (id: string) => {
+    try {
+      await contentService.deleteSOP(id);
+      loadContent();
+    } catch (error) {
+      console.error('Error deleting SOP:', error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -54,7 +130,10 @@ export function LibraryPage() {
           </h1>
           <p className="text-gray-400 text-sm mt-1">Manage templates and SOPs for AI-guided responses</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white text-sm font-medium rounded-lg transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:scale-105">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white text-sm font-medium rounded-lg transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:scale-105"
+        >
           <Icons.Plus className="w-4 h-4" />
           {activeTab === 'templates' ? 'New Template' : 'New SOP'}
         </button>
@@ -186,6 +265,159 @@ export function LibraryPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Add Template/SOP Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass-panel rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">
+                {activeTab === 'templates' ? 'New Template' : 'New SOP'}
+              </h2>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <Icons.X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {activeTab === 'templates' ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Name *</label>
+                  <input
+                    type="text"
+                    value={newTemplate.name}
+                    onChange={e => setNewTemplate({ ...newTemplate, name: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                    placeholder="e.g., Helpful Value Add"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Type</label>
+                    <select
+                      value={newTemplate.type}
+                      onChange={e => setNewTemplate({ ...newTemplate, type: e.target.value as ContentType })}
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                    >
+                      <option value="social_comment">Social Comment</option>
+                      <option value="linkedin_message">LinkedIn Message</option>
+                      <option value="email_outreach">Email Outreach</option>
+                      <option value="follow_up">Follow Up</option>
+                      <option value="objection_handler">Objection Handler</option>
+                      <option value="case_study_snippet">Case Study Snippet</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                    <input
+                      type="text"
+                      value={newTemplate.category}
+                      onChange={e => setNewTemplate({ ...newTemplate, category: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                      placeholder="e.g., Community Engagement"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Content *</label>
+                  <textarea
+                    value={newTemplate.content}
+                    onChange={e => setNewTemplate({ ...newTemplate, content: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50 h-32 resize-none"
+                    placeholder="Use {{variableName}} for dynamic content..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Tip: Use {"{{variableName}}"} for variables like {"{{firstName}}"}, {"{{company}}"}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Name *</label>
+                  <input
+                    type="text"
+                    value={newSOP.name}
+                    onChange={e => setNewSOP({ ...newSOP, name: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                    placeholder="e.g., Professional Tone"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Type</label>
+                    <select
+                      value={newSOP.type}
+                      onChange={e => setNewSOP({ ...newSOP, type: e.target.value as SOPType })}
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                    >
+                      <option value="tone">Tone</option>
+                      <option value="rule">Rule</option>
+                      <option value="escalation">Escalation</option>
+                      <option value="template">Template</option>
+                      <option value="approval_required">Approval Required</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Priority</label>
+                    <select
+                      value={newSOP.priority}
+                      onChange={e => setNewSOP({ ...newSOP, priority: parseInt(e.target.value) })}
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                    >
+                      <option value="1">1 - Highest</option>
+                      <option value="2">2 - High</option>
+                      <option value="3">3 - Medium</option>
+                      <option value="4">4 - Low</option>
+                      <option value="5">5 - Lowest</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newSOP.category}
+                    onChange={e => setNewSOP({ ...newSOP, category: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                    placeholder="e.g., Brand Voice"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Content *</label>
+                  <textarea
+                    value={newSOP.content}
+                    onChange={e => setNewSOP({ ...newSOP, content: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50 h-32 resize-none"
+                    placeholder="Describe the guideline or rule..."
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="flex-1 px-4 py-2.5 border border-white/10 rounded-lg hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={activeTab === 'templates' ? handleAddTemplate : handleAddSOP}
+                disabled={
+                  activeTab === 'templates'
+                    ? !newTemplate.name || !newTemplate.content
+                    : !newSOP.name || !newSOP.content
+                }
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary to-accent rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Create
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

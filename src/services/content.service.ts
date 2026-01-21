@@ -1,13 +1,15 @@
 // ============================================================================
 // CONTENT SERVICE - Templates & SOPs Management
+// Now with localStorage persistence via storage.service
 // ============================================================================
 
 import { ContentTemplate, SOP, ContentType, SOPType, TeamMember } from '../types';
 import { ContentService, CreateTemplateInput } from './index';
+import { storage } from './storage.service';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
-// In-memory storage
+// In-memory cache (synced with localStorage)
 let templates: ContentTemplate[] = [];
 let sops: SOP[] = [];
 
@@ -216,8 +218,40 @@ const SAMPLE_SOPS: SOP[] = [
   }
 ];
 
-templates = [...SAMPLE_TEMPLATES];
-sops = [...SAMPLE_SOPS];
+// Initialize from localStorage or use sample data
+const loadFromStorage = () => {
+  const savedTemplates = storage.get<ContentTemplate[]>('nexus-templates', []);
+  const savedSOPs = storage.get<SOP[]>('nexus-sops', []);
+
+  if (savedTemplates.length > 0) {
+    templates = savedTemplates.map(t => ({
+      ...t,
+      createdAt: new Date(t.createdAt),
+      updatedAt: new Date(t.updatedAt)
+    }));
+  } else {
+    templates = [...SAMPLE_TEMPLATES];
+    storage.set('nexus-templates', templates);
+  }
+
+  if (savedSOPs.length > 0) {
+    sops = savedSOPs.map(s => ({
+      ...s,
+      createdAt: new Date(s.createdAt),
+      updatedAt: new Date(s.updatedAt)
+    }));
+  } else {
+    sops = [...SAMPLE_SOPS];
+    storage.set('nexus-sops', sops);
+  }
+};
+
+// Save to localStorage
+const saveTemplates = () => storage.set('nexus-templates', templates);
+const saveSOPs = () => storage.set('nexus-sops', sops);
+
+// Initialize on load
+loadFromStorage();
 
 export class LocalContentService implements ContentService {
 
@@ -261,6 +295,7 @@ export class LocalContentService implements ContentService {
     };
 
     templates.push(template);
+    saveTemplates();
     return template;
   }
 
@@ -278,6 +313,7 @@ export class LocalContentService implements ContentService {
     if (data.content) {
       templates[index].variables = this.extractVariables(data.content);
     }
+    saveTemplates();
 
     return templates[index];
   }
@@ -286,6 +322,7 @@ export class LocalContentService implements ContentService {
     const index = templates.findIndex(t => t.id === id);
     if (index !== -1) {
       templates.splice(index, 1);
+      saveTemplates();
     }
   }
 
@@ -321,6 +358,7 @@ export class LocalContentService implements ContentService {
     };
 
     sops.push(sop);
+    saveSOPs();
     return sop;
   }
 
@@ -333,6 +371,7 @@ export class LocalContentService implements ContentService {
       ...data,
       updatedAt: new Date()
     };
+    saveSOPs();
 
     return sops[index];
   }
@@ -341,6 +380,7 @@ export class LocalContentService implements ContentService {
     const index = sops.findIndex(s => s.id === id);
     if (index !== -1) {
       sops.splice(index, 1);
+      saveSOPs();
     }
   }
 
@@ -350,6 +390,7 @@ export class LocalContentService implements ContentService {
 
     sops[index].isActive = !sops[index].isActive;
     sops[index].updatedAt = new Date();
+    saveSOPs();
 
     return sops[index];
   }
@@ -366,6 +407,7 @@ export class LocalContentService implements ContentService {
     }
     template.performance.replyRate = template.performance.replies / template.performance.sent;
     template.updatedAt = new Date();
+    saveTemplates();
   }
 
   // Helper methods

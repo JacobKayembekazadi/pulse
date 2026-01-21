@@ -7,12 +7,20 @@ import React, { useEffect, useState } from 'react';
 import { useAccountsStore } from '../../store';
 import { accountsService } from '../../services/accounts.service';
 import { Icons } from '../shared/Icons';
-import { Account, AccountTier } from '../../types';
+import { Account, AccountTier, CompanySize } from '../../types';
 
 export function AccountsPage() {
   const { accounts, setAccounts, selectedAccount, setSelectedAccount, filters, setFilters } = useAccountsStore();
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newAccount, setNewAccount] = useState({
+    name: '',
+    domain: '',
+    industry: '',
+    size: '11-50' as CompanySize,
+    tags: ''
+  });
 
   useEffect(() => {
     loadAccounts();
@@ -27,6 +35,40 @@ export function AccountsPage() {
       console.error('Error loading accounts:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleAddAccount = async () => {
+    if (!newAccount.name || !newAccount.domain) return;
+
+    try {
+      await accountsService.createAccount({
+        company: {
+          name: newAccount.name,
+          domain: newAccount.domain,
+          industry: newAccount.industry || 'Technology',
+          size: newAccount.size,
+          location: { city: '', state: '', country: 'USA', timezone: 'UTC' },
+          techStack: [],
+          socialProfiles: { website: `https://${newAccount.domain}` }
+        },
+        tags: newAccount.tags.split(',').map(t => t.trim()).filter(Boolean),
+        lists: []
+      });
+      setShowAddModal(false);
+      setNewAccount({ name: '', domain: '', industry: '', size: '11-50', tags: '' });
+      loadAccounts();
+    } catch (error) {
+      console.error('Error creating account:', error);
+    }
+  };
+
+  const handleDeleteAccount = async (id: string) => {
+    try {
+      await accountsService.deleteAccount(id);
+      loadAccounts();
+    } catch (error) {
+      console.error('Error deleting account:', error);
     }
   };
 
@@ -56,7 +98,10 @@ export function AccountsPage() {
           </h1>
           <p className="text-gray-400 text-sm mt-1">{accounts.length} accounts tracked</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white text-sm font-medium rounded-lg transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:scale-105">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white text-sm font-medium rounded-lg transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:scale-105"
+        >
           <Icons.Plus className="w-4 h-4" />
           Add Account
         </button>
@@ -213,6 +258,108 @@ export function AccountsPage() {
           account={selectedAccount}
           onClose={() => setSelectedAccount(null)}
         />
+      )}
+
+      {/* Add Account Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass-panel rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">Add New Account</h2>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <Icons.X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Company Name *</label>
+                <input
+                  type="text"
+                  value={newAccount.name}
+                  onChange={e => setNewAccount({ ...newAccount, name: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                  placeholder="e.g., Acme Corporation"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Domain *</label>
+                <input
+                  type="text"
+                  value={newAccount.domain}
+                  onChange={e => setNewAccount({ ...newAccount, domain: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                  placeholder="e.g., acme.com"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Industry</label>
+                  <select
+                    value={newAccount.industry}
+                    onChange={e => setNewAccount({ ...newAccount, industry: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                  >
+                    <option value="">Select industry...</option>
+                    <option value="SaaS">SaaS</option>
+                    <option value="Technology">Technology</option>
+                    <option value="Cloud Infrastructure">Cloud Infrastructure</option>
+                    <option value="Fintech">Fintech</option>
+                    <option value="Healthcare">Healthcare</option>
+                    <option value="E-commerce">E-commerce</option>
+                    <option value="Enterprise">Enterprise</option>
+                    <option value="Venture Capital">Venture Capital</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Company Size</label>
+                  <select
+                    value={newAccount.size}
+                    onChange={e => setNewAccount({ ...newAccount, size: e.target.value as CompanySize })}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                  >
+                    <option value="1-10">1-10</option>
+                    <option value="11-50">11-50</option>
+                    <option value="51-200">51-200</option>
+                    <option value="201-500">201-500</option>
+                    <option value="501-1000">501-1000</option>
+                    <option value="1000+">1000+</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Tags (comma-separated)</label>
+                <input
+                  type="text"
+                  value={newAccount.tags}
+                  onChange={e => setNewAccount({ ...newAccount, tags: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-primary/50"
+                  placeholder="e.g., high-intent, enterprise, saas"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="flex-1 px-4 py-2.5 border border-white/10 rounded-lg hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddAccount}
+                disabled={!newAccount.name || !newAccount.domain}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-primary to-accent rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add Account
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 // ============================================================================
 // ACCOUNTS SERVICE - Account & Contact Management with Lead Scoring
+// Now with localStorage persistence via storage.service
 // ============================================================================
 
 import {
@@ -8,8 +9,9 @@ import {
   Seniority, Department, IntentType, IntentStrength
 } from '../types';
 import { AccountsService, CreateAccountInput, UpdateAccountInput, CreateContactInput } from './index';
+import { storage } from './storage.service';
 
-// In-memory storage (replace with database in production)
+// In-memory cache (synced with localStorage)
 let accounts: Account[] = [];
 let contacts: Contact[] = [];
 
@@ -165,12 +167,51 @@ const SAMPLE_CONTACTS: Contact[] = [
   }
 ];
 
-// Initialize with sample data
-accounts = SAMPLE_ACCOUNTS.map(acc => ({
-  ...acc,
-  contacts: SAMPLE_CONTACTS.filter(c => c.accountId === acc.id)
-}));
-contacts = SAMPLE_CONTACTS;
+// Initialize from localStorage or use sample data
+const loadFromStorage = () => {
+  const savedAccounts = storage.get<Account[]>('nexus-accounts', []);
+  if (savedAccounts.length > 0) {
+    // Restore Date objects from JSON
+    accounts = savedAccounts.map(acc => ({
+      ...acc,
+      createdAt: new Date(acc.createdAt),
+      updatedAt: new Date(acc.updatedAt),
+      score: {
+        ...acc.score,
+        lastCalculated: new Date(acc.score.lastCalculated)
+      },
+      intentSignals: acc.intentSignals.map(sig => ({
+        ...sig,
+        timestamp: new Date(sig.timestamp),
+        expiresAt: sig.expiresAt ? new Date(sig.expiresAt) : undefined
+      })),
+      contacts: acc.contacts.map(c => ({
+        ...c,
+        lastContactedAt: c.lastContactedAt ? new Date(c.lastContactedAt) : undefined,
+        lastEngagedAt: c.lastEngagedAt ? new Date(c.lastEngagedAt) : undefined
+      }))
+    }));
+    // Extract contacts
+    contacts = accounts.flatMap(a => a.contacts);
+  } else {
+    // Initialize with sample data
+    accounts = SAMPLE_ACCOUNTS.map(acc => ({
+      ...acc,
+      contacts: SAMPLE_CONTACTS.filter(c => c.accountId === acc.id)
+    }));
+    contacts = SAMPLE_CONTACTS;
+    // Save to storage
+    storage.set('nexus-accounts', accounts);
+  }
+};
+
+// Save accounts to localStorage
+const saveToStorage = () => {
+  storage.set('nexus-accounts', accounts);
+};
+
+// Initialize on load
+loadFromStorage();
 
 export class LocalAccountsService implements AccountsService {
 
@@ -264,6 +305,7 @@ export class LocalAccountsService implements AccountsService {
     };
 
     accounts.push(newAccount);
+    saveToStorage();
     return newAccount;
   }
 
@@ -282,6 +324,7 @@ export class LocalAccountsService implements AccountsService {
     account.updatedAt = new Date();
 
     accounts[index] = account;
+    saveToStorage();
     return account;
   }
 
@@ -290,6 +333,7 @@ export class LocalAccountsService implements AccountsService {
     if (index !== -1) {
       accounts.splice(index, 1);
       contacts = contacts.filter(c => c.accountId !== id);
+      saveToStorage();
     }
   }
 
@@ -315,6 +359,7 @@ export class LocalAccountsService implements AccountsService {
 
     contacts.push(contact);
     account.contacts.push(contact);
+    saveToStorage();
 
     return contact;
   }
@@ -333,6 +378,7 @@ export class LocalAccountsService implements AccountsService {
         account.contacts[accContactIndex] = contacts[index];
       }
     }
+    saveToStorage();
 
     return contacts[index];
   }
@@ -347,6 +393,7 @@ export class LocalAccountsService implements AccountsService {
     if (account) {
       account.contacts = account.contacts.filter(c => c.id !== contactId);
     }
+    saveToStorage();
   }
 
   async recalculateScore(accountId: string): Promise<LeadScore> {
@@ -356,6 +403,7 @@ export class LocalAccountsService implements AccountsService {
     const score = this.calculateScore(account);
     account.score = score;
     account.updatedAt = new Date();
+    saveToStorage();
 
     return score;
   }

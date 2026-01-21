@@ -7,22 +7,33 @@ import { GoogleGenAI } from '@google/genai';
 import { SocialPost, Platform, TimeFrame, Sentiment, PostCategory } from '../types';
 import { SearchService, SearchParams } from './index';
 
-// API Keys - loaded from localStorage or environment
+// API Keys - loaded from localStorage or environment (Vite-compatible)
 const getApiKey = (key: string): string => {
+  // First check localStorage (user-configured in Settings)
   if (typeof window !== 'undefined') {
     const settings = localStorage.getItem('nexus-settings');
     if (settings) {
-      const parsed = JSON.parse(settings);
-      if (key === 'gemini' && parsed.state?.aiConfig?.apiKey) {
-        return parsed.state.aiConfig.apiKey;
-      }
-      if (key === 'apify') {
-        const apifyIntegration = parsed.state?.integrations?.find((i: any) => i.id === 'apify');
-        return apifyIntegration?.apiKey || '';
+      try {
+        const parsed = JSON.parse(settings);
+        if (key === 'gemini' && parsed.state?.aiConfig?.apiKey) {
+          return parsed.state.aiConfig.apiKey;
+        }
+        if (key === 'apify') {
+          const apifyIntegration = parsed.state?.integrations?.find((i: any) => i.id === 'apify');
+          if (apifyIntegration?.credentials?.apiKey) {
+            return apifyIntegration.credentials.apiKey;
+          }
+        }
+      } catch (e) {
+        console.warn('Error parsing settings from localStorage:', e);
       }
     }
   }
-  return process.env[`${key.toUpperCase()}_API_KEY`] || '';
+
+  // Fall back to environment variables (Vite syntax for browser)
+  // VITE_ prefix is required for client-side access
+  const envKey = `VITE_${key.toUpperCase()}_API_KEY`;
+  return (import.meta.env as Record<string, string>)[envKey] || '';
 };
 
 // Apify Actor IDs for different platforms
