@@ -74,26 +74,28 @@ export class PulseSearchService implements SearchService {
   }
 
   async search(params: SearchParams): Promise<SocialPost[]> {
-    const apifyKey = getApiKey('apify');
-
-    // Try Apify first if configured
-    if (apifyKey) {
-      try {
-        return await this.searchWithApify(params);
-      } catch (error) {
-        console.warn('Apify search failed, falling back to AI search:', error);
-      }
-    }
-
-    // Fall back to Gemini AI search
+    // Prioritize Gemini AI search (works from browser without CORS issues)
     if (this.geminiClient || getApiKey('gemini')) {
       this.initializeClients();
       if (this.geminiClient) {
         try {
-          return await this.searchWithGemini(params);
+          const results = await this.searchWithGemini(params);
+          if (results.length > 0) {
+            return results;
+          }
         } catch (error) {
-          console.warn('Gemini search failed, using mock data:', error);
+          console.warn('Gemini search failed:', error);
         }
+      }
+    }
+
+    // Try Apify via serverless proxy (avoids CORS)
+    const apifyKey = getApiKey('apify');
+    if (apifyKey) {
+      try {
+        return await this.searchWithApifyProxy(params);
+      } catch (error) {
+        console.warn('Apify search failed, using mock data:', error);
       }
     }
 
@@ -101,6 +103,127 @@ export class PulseSearchService implements SearchService {
     return this.generateMockResults(params.keywords, params.platforms, params.maxResults || 10);
   }
 
+  // Use serverless proxy to avoid CORS issues
+  async searchWithApifyProxy(params: SearchParams): Promise<SocialPost[]> {
+    const { keywords, platforms, timeframe, maxResults = 20 } = params;
+    const apifyKey = getApiKey('apify');
+
+    if (!apifyKey) {
+      throw new Error('Apify API key not configured');
+    }
+
+    const searchTerms = Array.isArray(keywords) ? keywords.join(' ') : keywords;
+    const allPosts: SocialPost[] = [];
+
+    // Search each platform via proxy
+    for (const platform of platforms) {
+      const actorId = APIFY_ACTORS[platform as keyof typeof APIFY_ACTORS];
+      if (!actorId) continue;
+
+      try {
+        const posts = await this.runApifyActorViaProxy(actorId, {
+          searchTerms,
+          maxResults: Math.ceil(maxResults / platforms.length),
+          timeframe
+        }, apifyKey, platform);
+
+        allPosts.push(...posts);
+      } catch (error) {
+        console.error(`Apify ${platform} search failed:`, error);
+      }
+    }
+
+    return allPosts.slice(0, maxResults);
+  }
+
+  // Run Apify actor via serverless proxy to avoid CORS
+  private async runApifyActorViaProxy(
+    actorId: string,
+    input: any,
+    apiKey: string,
+    platform: Platform
+  ): Promise<SocialPost[]> {
+    // Determine proxy base URL - works in development and production
+    const proxyBase = typeof window !== 'undefined' && window.location.origin
+      ? window.location.origin
+      : '';
+
+    // Start the actor run via proxy
+    const runResponse = await fetch(
+      `${proxyBase}/api/apify?action=run&actorId=${encodeURIComponent(actorId)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-apify-token': apiKey
+        },
+        body: JSON.stringify(input)
+      }
+    );
+
+    if (!runResponse.ok) {
+      const errorData = await runResponse.json().catch(() => ({}));
+      throw new Error(`Apify proxy run failed: ${errorData.error || runResponse.statusText}`);
+    }
+
+    const runData = await runResponse.json();
+    const runId = runData.data?.id;
+
+    if (!runId) {
+      throw new Error('Apify proxy: No run ID returned');
+    }
+
+    // Poll for completion (max 30 seconds)
+    let attempts = 0;
+    while (attempts < 15) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const statusResponse = await fetch(
+        `${proxyBase}/api/apify?action=status&runId=${runId}`,
+        {
+          headers: { 'x-apify-token': apiKey }
+        }
+      );
+
+      if (!statusResponse.ok) {
+        attempts++;
+        continue;
+      }
+
+      const statusData = await statusResponse.json();
+
+      if (statusData.data?.status === 'SUCCEEDED') {
+        // Get results via proxy
+        const datasetId = statusData.data.defaultDatasetId;
+        const resultsResponse = await fetch(
+          `${proxyBase}/api/apify?action=results&datasetId=${datasetId}`,
+          {
+            headers: { 'x-apify-token': apiKey }
+          }
+        );
+
+        if (!resultsResponse.ok) {
+          throw new Error('Failed to fetch Apify results');
+        }
+
+        const results = await resultsResponse.json();
+
+        return results.map((item: any, index: number) =>
+          this.normalizeApifyResult(item, platform, index)
+        );
+      }
+
+      if (statusData.data?.status === 'FAILED' || statusData.data?.status === 'ABORTED') {
+        throw new Error(`Apify actor ${statusData.data.status}`);
+      }
+
+      attempts++;
+    }
+
+    throw new Error('Apify actor timeout');
+  }
+
+  // Direct Apify call (for server-side use only)
   async searchWithApify(params: SearchParams): Promise<SocialPost[]> {
     const { keywords, platforms, timeframe, maxResults = 20 } = params;
     const apifyKey = getApiKey('apify');
