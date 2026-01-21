@@ -18,6 +18,7 @@ import { SetupWizard } from './components/onboarding/SetupWizard';
 import { storage } from './services/storage.service';
 import { Icons } from './components/shared/Icons';
 import { ToastContainer } from './components/shared/Toast';
+import { AIChatbot } from './components/chat/AIChatbot';
 
 // Placeholder components for pages not yet implemented
 const PlaceholderPage = ({ title }: { title: string }) => (
@@ -182,6 +183,7 @@ function NexusApp() {
       </AppShell>
       <SettingsPanel />
       <ToastContainer />
+      <AIChatbot />
     </>
   );
 }
