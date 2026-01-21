@@ -5,7 +5,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Icons } from '../shared/Icons';
-import { aiService } from '../../services/ai.service';
 import { useSettingsStore } from '../../store';
 
 interface Message {
@@ -14,6 +13,35 @@ interface Message {
   content: string;
   timestamp: Date;
 }
+
+// Get API key from all possible sources
+const getAvailableAIConfig = () => {
+  // Check env vars first
+  const envGemini = import.meta.env.VITE_GEMINI_API_KEY;
+  const envOpenAI = import.meta.env.VITE_OPENAI_API_KEY;
+  const envAnthropic = import.meta.env.VITE_ANTHROPIC_API_KEY;
+
+  if (envGemini) return { provider: 'gemini' as const, apiKey: envGemini };
+  if (envOpenAI) return { provider: 'openai' as const, apiKey: envOpenAI };
+  if (envAnthropic) return { provider: 'anthropic' as const, apiKey: envAnthropic };
+
+  // Check localStorage (setup wizard saves here)
+  if (typeof window !== 'undefined') {
+    try {
+      const apiKeys = localStorage.getItem('nexus-api-keys');
+      if (apiKeys) {
+        const parsed = JSON.parse(apiKeys);
+        if (parsed.geminiKey) return { provider: 'gemini' as const, apiKey: parsed.geminiKey };
+        if (parsed.openaiKey) return { provider: 'openai' as const, apiKey: parsed.openaiKey };
+        if (parsed.anthropicKey) return { provider: 'anthropic' as const, apiKey: parsed.anthropicKey };
+      }
+    } catch (e) {
+      console.warn('Error reading API keys:', e);
+    }
+  }
+
+  return { provider: null, apiKey: null };
+};
 
 const SYSTEM_CONTEXT = `You are NEXUS AI, a helpful assistant for a B2B social intelligence platform. You help users with:
 - Monitoring social media conversations (LinkedIn, Twitter, Reddit)
@@ -40,6 +68,12 @@ export function AIChatbot() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { aiConfig } = useSettingsStore();
+
+  // Get available AI config (prioritize env vars, then localStorage, then settings)
+  const availableConfig = getAvailableAIConfig();
+  const activeProvider = availableConfig.provider || aiConfig.provider;
+  const activeApiKey = availableConfig.apiKey || aiConfig.apiKey;
+  const hasApiKey = !!activeApiKey;
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -106,22 +140,20 @@ Respond helpfully and concisely:`;
 
   // Generate response using configured AI provider
   const generateResponse = async (prompt: string): Promise<string> => {
-    const apiKey = aiConfig.apiKey;
-
-    if (!apiKey) {
+    if (!activeApiKey) {
       throw new Error('No API key configured');
     }
 
-    // Use the appropriate provider based on settings
-    if (aiConfig.provider === 'openai') {
+    // Use the appropriate provider based on what's available
+    if (activeProvider === 'openai') {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'Authorization': `Bearer ${activeApiKey}`
         },
         body: JSON.stringify({
-          model: aiConfig.model || 'gpt-4o-mini',
+          model: 'gpt-4o-mini',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.7,
           max_tokens: 500
@@ -133,17 +165,17 @@ Respond helpfully and concisely:`;
       return data.choices[0]?.message?.content || 'No response generated.';
     }
 
-    if (aiConfig.provider === 'anthropic') {
+    if (activeProvider === 'anthropic') {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKey,
+          'x-api-key': activeApiKey,
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
-          model: aiConfig.model || 'claude-3-5-haiku-20241022',
+          model: 'claude-3-5-haiku-20241022',
           max_tokens: 500,
           messages: [{ role: 'user', content: prompt }]
         })
@@ -154,9 +186,9 @@ Respond helpfully and concisely:`;
       return data.content[0]?.text || 'No response generated.';
     }
 
-    // Default to Gemini
+    // Default to Gemini (most likely configured)
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${aiConfig.model || 'gemini-2.0-flash'}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${activeApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -288,7 +320,7 @@ Respond helpfully and concisely:`;
 
           {/* Input */}
           <div className="p-4 border-t border-white/10">
-            {!aiConfig.apiKey && (
+            {!hasApiKey && (
               <p className="text-xs text-yellow-400 mb-2 flex items-center gap-1">
                 <Icons.AlertTriangle className="w-3 h-3" />
                 Configure AI key in Settings to enable chat
@@ -302,12 +334,12 @@ Respond helpfully and concisely:`;
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask me anything..."
-                disabled={!aiConfig.apiKey || isLoading}
+                disabled={!hasApiKey || isLoading}
                 className="flex-1 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-primary/50 disabled:opacity-50"
               />
               <button
                 onClick={() => sendMessage(input)}
-                disabled={!input.trim() || !aiConfig.apiKey || isLoading}
+                disabled={!input.trim() || !hasApiKey || isLoading}
                 className="px-4 py-2.5 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-50 text-white rounded-xl transition-all"
               >
                 <Icons.Send className="w-4 h-4" />
