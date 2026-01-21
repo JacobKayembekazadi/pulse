@@ -74,15 +74,23 @@ export class PulseSearchService implements SearchService {
   }
 
   async search(params: SearchParams): Promise<SocialPost[]> {
+    const geminiKey = getApiKey('gemini');
+    const apifyKey = getApiKey('apify');
+
+    console.log('Search starting - Gemini configured:', !!geminiKey, '- Apify configured:', !!apifyKey);
+
     // Prioritize Gemini AI search (works from browser without CORS issues)
-    if (this.geminiClient || getApiKey('gemini')) {
+    if (geminiKey) {
       this.initializeClients();
       if (this.geminiClient) {
         try {
+          console.log('Attempting Gemini search...');
           const results = await this.searchWithGemini(params);
           if (results.length > 0) {
+            console.log('Gemini search successful:', results.length, 'results');
             return results;
           }
+          console.log('Gemini returned 0 results');
         } catch (error) {
           console.warn('Gemini search failed:', error);
         }
@@ -90,17 +98,22 @@ export class PulseSearchService implements SearchService {
     }
 
     // Try Apify via serverless proxy (avoids CORS)
-    const apifyKey = getApiKey('apify');
     if (apifyKey) {
       try {
-        return await this.searchWithApifyProxy(params);
+        console.log('Attempting Apify search via proxy...');
+        const results = await this.searchWithApifyProxy(params);
+        console.log('Apify search successful:', results.length, 'results');
+        return results;
       } catch (error) {
-        console.warn('Apify search failed, using mock data:', error);
+        console.warn('Apify search failed:', error);
       }
     }
 
-    // Last resort: mock data
-    return this.generateMockResults(params.keywords, params.platforms, params.maxResults || 10);
+    // Last resort: mock data (with indicator)
+    console.log('Using mock data - no API keys configured or all searches failed');
+    const mockResults = this.generateMockResults(params.keywords, params.platforms, params.maxResults || 10);
+    // Tag mock results so UI can show indicator
+    return mockResults.map(post => ({ ...post, isMockData: true }));
   }
 
   // Use serverless proxy to avoid CORS issues
@@ -418,21 +431,30 @@ export class PulseSearchService implements SearchService {
 
     const platformList = platforms.length > 0 ? platforms.join(', ') : 'LinkedIn, Twitter, Reddit';
 
-    const prompt = `Search for recent social media posts about: ${searchTerms}
+    const prompt = `You are a social media research assistant. Search for and return real social media posts about: "${searchTerms}"
 
-Platforms: ${platformList}
-Timeframe: ${timeframeMap[timeframe]}
-Find ${maxResults} real posts. Return JSON array:
-[{
-  "platform": "linkedin|twitter|reddit",
-  "author": {"name": "Full Name", "handle": "username", "title": "Job Title"},
-  "content": "The actual post text...",
-  "engagement": {"likes": 100, "comments": 20, "shares": 5},
-  "postedAt": "2024-01-15T10:30:00Z",
-  "url": "https://..."
-}]`;
+Look for posts on: ${platformList}
+Time period: ${timeframeMap[timeframe]}
+Number of posts needed: ${maxResults}
+
+IMPORTANT: Return ONLY a valid JSON array with no other text. Each post should have real content about the topic.
+Format:
+[
+  {
+    "platform": "linkedin",
+    "author": {"name": "Real Person Name", "handle": "username", "title": "Their Job Title"},
+    "content": "The actual text content of the post discussing ${searchTerms}...",
+    "engagement": {"likes": 150, "comments": 23, "shares": 8},
+    "postedAt": "2025-01-20T14:30:00Z",
+    "url": "https://linkedin.com/posts/example"
+  }
+]
+
+Return ${Math.min(maxResults, 10)} relevant posts as a JSON array:`;
 
     try {
+      console.log('Gemini search starting for:', searchTerms);
+
       const response = await this.geminiClient.models.generateContent({
         model: 'gemini-2.0-flash',
         contents: prompt,
@@ -441,14 +463,33 @@ Find ${maxResults} real posts. Return JSON array:
         }
       });
 
-      const text = response.text || '[]';
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      const text = response.text || '';
+      console.log('Gemini response length:', text.length);
+
+      // Try to extract JSON from response
+      const jsonMatch = text.match(/\[[\s\S]*?\]/);
 
       if (!jsonMatch) {
-        return this.generateMockResults(keywords, platforms, maxResults);
+        console.warn('No JSON array found in Gemini response, trying to parse as-is');
+        // Try parsing the whole response
+        try {
+          const parsed = JSON.parse(text.trim());
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((post: any, index: number) => this.normalizeGeminiResult(post, index));
+          }
+        } catch {
+          console.warn('Could not parse Gemini response as JSON');
+        }
+        throw new Error('Invalid response format from Gemini');
       }
 
       const rawPosts = JSON.parse(jsonMatch[0]);
+      console.log('Gemini returned', rawPosts.length, 'posts');
+
+      if (rawPosts.length === 0) {
+        throw new Error('Gemini returned empty results');
+      }
+
       return rawPosts.map((post: any, index: number) => this.normalizeGeminiResult(post, index));
     } catch (error) {
       console.error('Gemini search error:', error);

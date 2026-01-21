@@ -59,8 +59,15 @@ export function PulseFeed() {
         maxResults: 20
       });
       setPosts(results);
-      if (results.length === 0) {
+
+      // Check if we're using mock data
+      const isMockData = results.some((r: any) => r.isMockData);
+      if (isMockData) {
+        toast.warning('Using Demo Data', 'Configure Gemini or Apify API keys in Settings for real results');
+      } else if (results.length === 0) {
         toast.info('No results found', 'Try different keywords or expand your search filters');
+      } else {
+        toast.success(`Found ${results.length} posts`, 'Real-time social data loaded');
       }
     } catch (error) {
       console.error('Search error:', error);
@@ -259,7 +266,15 @@ export function PulseFeed() {
         ) : (
           <>
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-400">{posts.length} posts found</p>
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-gray-400">{posts.length} posts found</p>
+                {posts.some((p: any) => p.isMockData) && (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded text-xs">
+                    <Icons.AlertTriangle className="w-3 h-3" />
+                    Demo Data - Configure API keys for real results
+                  </span>
+                )}
+              </div>
               <button
                 onClick={() => posts.forEach(p => handleGenerateComment(p))}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-sm font-medium rounded-lg transition-colors"
