@@ -11,6 +11,10 @@ import { AIService, GeneratedContent, AIGenerateCommentParams, AIGenerateOutreac
 
 type AIProvider = 'google' | 'openai' | 'anthropic';
 
+// Debug logging helper
+const debug = import.meta.env.VITE_DEBUG === 'true';
+const log = (...args: any[]) => debug && console.log(...args);
+
 interface AIConfig {
   provider: AIProvider;
   apiKey: string;
@@ -24,6 +28,8 @@ interface AIConfig {
 
 // Get AI config from localStorage or environment
 const getAIConfig = (): AIConfig => {
+  log('[AIService] Loading AI config...');
+
   const defaults: AIConfig = {
     provider: 'google',
     apiKey: '',
@@ -38,11 +44,13 @@ const getAIConfig = (): AIConfig => {
   // Check localStorage first (user-configured in Settings)
   if (typeof window !== 'undefined') {
     const settings = localStorage.getItem('nexus-settings');
+    log('[AIService] nexus-settings:', settings ? 'found' : 'not found');
+
     if (settings) {
       try {
         const parsed = JSON.parse(settings);
         if (parsed.state?.aiConfig) {
-          return {
+          const config = {
             provider: parsed.state.aiConfig.provider || defaults.provider,
             apiKey: parsed.state.aiConfig.apiKey || '',
             model: parsed.state.aiConfig.model || defaults.model,
@@ -52,9 +60,16 @@ const getAIConfig = (): AIConfig => {
               defaultTone: parsed.state.aiConfig.settings?.defaultTone || defaults.settings.defaultTone
             }
           };
+          log('[AIService] ✓ Loaded from nexus-settings:', {
+            provider: config.provider,
+            model: config.model,
+            hasApiKey: !!config.apiKey,
+            apiKeyPrefix: config.apiKey ? config.apiKey.substring(0, 8) + '...' : 'none'
+          });
+          return config;
         }
       } catch (e) {
-        console.warn('Error parsing AI config from localStorage:', e);
+        console.warn('[AIService] Error parsing AI config from localStorage:', e);
       }
     }
   }
@@ -63,6 +78,12 @@ const getAIConfig = (): AIConfig => {
   const envKey = import.meta.env.VITE_GEMINI_API_KEY ||
                  import.meta.env.VITE_OPENAI_API_KEY ||
                  import.meta.env.VITE_ANTHROPIC_API_KEY || '';
+
+  log('[AIService] Checking env vars:', {
+    hasGemini: !!import.meta.env.VITE_GEMINI_API_KEY,
+    hasOpenAI: !!import.meta.env.VITE_OPENAI_API_KEY,
+    hasAnthropic: !!import.meta.env.VITE_ANTHROPIC_API_KEY
+  });
 
   if (import.meta.env.VITE_OPENAI_API_KEY) {
     defaults.provider = 'openai';
@@ -73,6 +94,13 @@ const getAIConfig = (): AIConfig => {
   }
 
   defaults.apiKey = envKey;
+
+  if (defaults.apiKey) {
+    log('[AIService] ✓ Using env var config:', { provider: defaults.provider, model: defaults.model });
+  } else {
+    log('[AIService] ✗ No API key found - AI features will be disabled');
+  }
+
   return defaults;
 };
 

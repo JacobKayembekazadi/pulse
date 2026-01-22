@@ -14,32 +14,81 @@ interface Message {
   timestamp: Date;
 }
 
+// Debug logging helper
+const debug = import.meta.env.VITE_DEBUG === 'true';
+const log = (...args: any[]) => debug && console.log(...args);
+
 // Get API key from all possible sources
 const getAvailableAIConfig = () => {
+  log('[AIChatbot] Checking for available AI config...');
+
   // Check env vars first
   const envGemini = import.meta.env.VITE_GEMINI_API_KEY;
   const envOpenAI = import.meta.env.VITE_OPENAI_API_KEY;
   const envAnthropic = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
+  log('[AIChatbot] Env vars:', {
+    hasGemini: !!envGemini,
+    hasOpenAI: !!envOpenAI,
+    hasAnthropic: !!envAnthropic
+  });
+
   if (envGemini) return { provider: 'gemini' as const, apiKey: envGemini };
   if (envOpenAI) return { provider: 'openai' as const, apiKey: envOpenAI };
   if (envAnthropic) return { provider: 'anthropic' as const, apiKey: envAnthropic };
 
-  // Check localStorage (setup wizard saves here)
+  // Check localStorage - settings panel saves AI config to nexus-settings via Zustand
   if (typeof window !== 'undefined') {
     try {
+      // Check nexus-settings first (where Settings Panel saves via Zustand)
+      const settings = localStorage.getItem('nexus-settings');
+      log('[AIChatbot] nexus-settings raw:', settings ? 'found' : 'not found');
+
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        const aiConfig = parsed.state?.aiConfig;
+        log('[AIChatbot] nexus-settings.state.aiConfig:', {
+          provider: aiConfig?.provider,
+          hasApiKey: !!aiConfig?.apiKey,
+          apiKeyPrefix: aiConfig?.apiKey ? aiConfig.apiKey.substring(0, 8) + '...' : 'none'
+        });
+
+        if (aiConfig?.apiKey) {
+          const providerMap: Record<string, 'gemini' | 'openai' | 'anthropic'> = {
+            'google': 'gemini',
+            'openai': 'openai',
+            'anthropic': 'anthropic'
+          };
+          log('[AIChatbot] ✓ Found API key in nexus-settings');
+          return {
+            provider: providerMap[aiConfig.provider] || 'gemini',
+            apiKey: aiConfig.apiKey
+          };
+        }
+      }
+
+      // Fallback: check nexus-api-keys (setup wizard might save here)
       const apiKeys = localStorage.getItem('nexus-api-keys');
+      log('[AIChatbot] nexus-api-keys raw:', apiKeys ? 'found' : 'not found');
+
       if (apiKeys) {
         const parsed = JSON.parse(apiKeys);
+        log('[AIChatbot] nexus-api-keys contents:', {
+          hasGeminiKey: !!parsed.geminiKey,
+          hasOpenaiKey: !!parsed.openaiKey,
+          hasAnthropicKey: !!parsed.anthropicKey,
+          hasApifyKey: !!parsed.apifyKey
+        });
         if (parsed.geminiKey) return { provider: 'gemini' as const, apiKey: parsed.geminiKey };
         if (parsed.openaiKey) return { provider: 'openai' as const, apiKey: parsed.openaiKey };
         if (parsed.anthropicKey) return { provider: 'anthropic' as const, apiKey: parsed.anthropicKey };
       }
     } catch (e) {
-      console.warn('Error reading API keys:', e);
+      console.warn('[AIChatbot] Error reading API keys:', e);
     }
   }
 
+  log('[AIChatbot] ✗ No API key found');
   return { provider: null, apiKey: null };
 };
 

@@ -330,3 +330,18 @@ export interface AnalyticsService {
   getTeamLeaderboard(): Promise<{ member: string; score: number }[]>;
   getAttributionReport(timeframe: TimeFrame): Promise<Attribution[]>;
 }
+
+// ============================================
+// SERVICE EXPORTS
+// ============================================
+
+// Re-export service instances for easy access
+export { campaignService } from './campaign.service';
+export { competitiveService } from './competitive.service';
+export { analyticsService } from './analytics.service';
+export { hotMomentsService } from './hotMoments.service';
+export { accountsService } from './accounts.service';
+export { searchService } from './search.service';
+export { aiService } from './ai.service';
+export { inboxService } from './inbox.service';
+export { enrichmentService } from './enrichment.service';

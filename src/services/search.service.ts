@@ -7,39 +7,64 @@ import { GoogleGenAI } from '@google/genai';
 import { SocialPost, Platform, TimeFrame, Sentiment, PostCategory } from '../types';
 import { SearchService, SearchParams } from './index';
 
+// Debug logging helper
+const debug = import.meta.env.VITE_DEBUG === 'true';
+const log = (...args: any[]) => debug && console.log(...args);
+
 // API Keys - loaded from localStorage or environment (Vite-compatible)
 const getApiKey = (key: string): string => {
+  log(`[SearchService] Looking for ${key} API key...`);
+
   // First check localStorage (user-configured in Settings)
   if (typeof window !== 'undefined') {
-    // Check nexus-api-keys first (where setup wizard saves)
+    // Check nexus-api-keys first (where setup wizard/settings saves Apify)
     const apiKeys = localStorage.getItem('nexus-api-keys');
     if (apiKeys && key === 'apify') {
       try {
         const parsed = JSON.parse(apiKeys);
+        log(`[SearchService] nexus-api-keys for apify:`, {
+          hasApifyKey: !!parsed.apifyKey,
+          keyPrefix: parsed.apifyKey ? parsed.apifyKey.substring(0, 10) + '...' : 'none'
+        });
         if (parsed.apifyKey) {
+          log(`[SearchService] ✓ Found Apify key in nexus-api-keys`);
           return parsed.apifyKey;
         }
       } catch (e) {
-        console.warn('Error parsing nexus-api-keys:', e);
+        console.warn('[SearchService] Error parsing nexus-api-keys:', e);
       }
     }
 
-    // Check nexus-settings (where settings panel saves)
+    // Check nexus-settings (where settings panel saves via Zustand)
     const settings = localStorage.getItem('nexus-settings');
     if (settings) {
       try {
         const parsed = JSON.parse(settings);
-        if (key === 'gemini' && parsed.state?.aiConfig?.apiKey) {
-          return parsed.state.aiConfig.apiKey;
+        if (key === 'gemini') {
+          const hasKey = !!parsed.state?.aiConfig?.apiKey;
+          log(`[SearchService] nexus-settings for gemini:`, {
+            provider: parsed.state?.aiConfig?.provider,
+            hasApiKey: hasKey,
+            keyPrefix: hasKey ? parsed.state.aiConfig.apiKey.substring(0, 8) + '...' : 'none'
+          });
+          if (hasKey) {
+            log(`[SearchService] ✓ Found Gemini key in nexus-settings`);
+            return parsed.state.aiConfig.apiKey;
+          }
         }
         if (key === 'apify') {
           const apifyIntegration = parsed.state?.integrations?.find((i: any) => i.id === 'apify');
+          log(`[SearchService] nexus-settings integrations for apify:`, {
+            hasIntegration: !!apifyIntegration,
+            hasCredentials: !!apifyIntegration?.credentials?.apiKey
+          });
           if (apifyIntegration?.credentials?.apiKey) {
+            log(`[SearchService] ✓ Found Apify key in nexus-settings integrations`);
             return apifyIntegration.credentials.apiKey;
           }
         }
       } catch (e) {
-        console.warn('Error parsing settings from localStorage:', e);
+        console.warn('[SearchService] Error parsing settings from localStorage:', e);
       }
     }
   }
@@ -47,7 +72,13 @@ const getApiKey = (key: string): string => {
   // Fall back to environment variables (Vite syntax for browser)
   // VITE_ prefix is required for client-side access
   const envKey = `VITE_${key.toUpperCase()}_API_KEY`;
-  return (import.meta.env as Record<string, string>)[envKey] || '';
+  const envValue = (import.meta.env as Record<string, string>)[envKey] || '';
+  log(`[SearchService] Env var ${envKey}:`, envValue ? 'found' : 'not found');
+
+  if (!envValue) {
+    log(`[SearchService] ✗ No ${key} API key found anywhere`);
+  }
+  return envValue;
 };
 
 // Apify Actor IDs for different platforms

@@ -19,6 +19,7 @@ import { storage } from './services/storage.service';
 import { Icons } from './components/shared/Icons';
 import { ToastContainer } from './components/shared/Toast';
 import { AIChatbot } from './components/chat/AIChatbot';
+import { ErrorBoundary } from './components/shared/ErrorBoundary';
 
 // Placeholder components for pages not yet implemented
 const PlaceholderPage = ({ title }: { title: string }) => (
@@ -85,7 +86,9 @@ function DemoDataBanner({ onConfigure }: { onConfigure: () => void }) {
   const apifyKey = storage.get<{ apifyKey?: string }>('nexus-api-keys', {}).apifyKey;
 
   // Don't show if both are configured
-  if (aiConfig.apiKey && apifyKey) return null;
+  if (aiConfig.apiKey && apifyKey) {
+    return null;
+  }
 
   return (
     <div className="mx-6 mt-4 px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center justify-between">
@@ -153,26 +156,30 @@ function NexusApp() {
   }
 
   const renderPage = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'pulse':
-        return <PulseFeed />;
-      case 'accounts':
-        return <AccountsPageComponent />;
-      case 'inbox':
-        return <InboxPageComponent />;
-      case 'campaigns':
-        return <CampaignsPageComponent />;
-      case 'compete':
-        return <CompetePageComponent />;
-      case 'library':
-        return <LibraryPageComponent />;
-      case 'analytics':
-        return <AnalyticsPageComponent />;
-      default:
-        return <Dashboard />;
-    }
+    const page = (() => {
+      switch (activeTab) {
+        case 'dashboard':
+          return <Dashboard />;
+        case 'pulse':
+          return <PulseFeed />;
+        case 'accounts':
+          return <AccountsPageComponent />;
+        case 'inbox':
+          return <InboxPageComponent />;
+        case 'campaigns':
+          return <CampaignsPageComponent />;
+        case 'compete':
+          return <CompetePageComponent />;
+        case 'library':
+          return <LibraryPageComponent />;
+        case 'analytics':
+          return <AnalyticsPageComponent />;
+        default:
+          return <Dashboard />;
+      }
+    })();
+
+    return <ErrorBoundary>{page}</ErrorBoundary>;
   };
 
   return (
