@@ -332,16 +332,7 @@ export interface AnalyticsService {
 }
 
 // ============================================
-// SERVICE EXPORTS
+// NOTE: Service instances should be imported directly from their respective files
+// e.g., import { campaignService } from './campaign.service';
+// Do NOT re-export here to avoid circular dependencies
 // ============================================
-
-// Re-export service instances for easy access
-export { campaignService } from './campaign.service';
-export { competitiveService } from './competitive.service';
-export { analyticsService } from './analytics.service';
-export { hotMomentsService } from './hotMoments.service';
-export { accountsService } from './accounts.service';
-export { searchService } from './search.service';
-export { aiService } from './ai.service';
-export { inboxService } from './inbox.service';
-export { enrichmentService } from './enrichment.service';
