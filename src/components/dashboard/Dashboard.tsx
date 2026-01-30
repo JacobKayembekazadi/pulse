@@ -8,40 +8,10 @@ import { useAccountsStore, useInboxStore, usePulseStore, useNotificationsStore }
 import { accountsService } from '../../services/accounts.service';
 import { inboxService } from '../../services/inbox.service';
 import { searchService } from '../../services/search.service';
+import { hotMomentsService } from '../../services/hotMoments.service';
 import { Icons } from '../shared/Icons';
 import { ReplyModal } from '../shared/ReplyModal';
 import { Account, Conversation, HotMoment, SocialPost } from '../../types';
-
-// Sample hot moments for demo
-const SAMPLE_HOT_MOMENTS: HotMoment[] = [
-  {
-    id: 'hm_1',
-    type: 'post_just_published',
-    accountId: 'acc_3',
-    description: 'CloudFirst (Hot Lead) just posted about scaling outreach',
-    urgency: 'act_now',
-    expiresAt: new Date(Date.now() + 3600000),
-    createdAt: new Date(Date.now() - 120000)
-  },
-  {
-    id: 'hm_2',
-    type: 'high_engagement',
-    postId: 'post_1',
-    description: 'Your comment on ABM thread getting high engagement',
-    urgency: 'within_hour',
-    expiresAt: new Date(Date.now() + 7200000),
-    createdAt: new Date(Date.now() - 600000)
-  },
-  {
-    id: 'hm_3',
-    type: 'competitor_active',
-    accountId: 'acc_1',
-    description: 'Competitor mentioned by TechCorp stakeholder',
-    urgency: 'today',
-    expiresAt: new Date(Date.now() + 86400000),
-    createdAt: new Date(Date.now() - 1800000)
-  }
-];
 
 // Activity feed item type
 interface ActivityItem {
@@ -119,7 +89,10 @@ export function Dashboard() {
         ]);
         setAccounts(accountsResult.data);
         setConversations(conversationsResult.data);
-        setHotMoments(SAMPLE_HOT_MOMENTS);
+
+        // Load hot moments from service
+        const moments = hotMomentsService.getHotMoments();
+        setHotMoments(moments);
 
         // Set default search input
         if (keywords.length === 0) {
@@ -132,6 +105,13 @@ export function Dashboard() {
       }
     };
     loadData();
+
+    // Subscribe to hot moments updates
+    const unsubscribe = hotMomentsService.subscribe((moments) => {
+      setHotMoments(moments);
+    });
+
+    return () => unsubscribe();
   }, [setAccounts, setConversations, setHotMoments, keywords.length]);
 
   // Fetch posts when keywords change
@@ -269,7 +249,10 @@ export function Dashboard() {
                         <p className="text-sm text-white">{moment.description}</p>
                       </div>
                       <button
-                        onClick={() => dismissHotMoment(moment.id)}
+                        onClick={() => {
+                          hotMomentsService.dismiss(moment.id);
+                          dismissHotMoment(moment.id);
+                        }}
                         className="p-1 hover:bg-white/10 rounded transition-colors"
                       >
                         <Icons.X className="w-4 h-4 opacity-60" />

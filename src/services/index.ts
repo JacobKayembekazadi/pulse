@@ -330,3 +330,9 @@ export interface AnalyticsService {
   getTeamLeaderboard(): Promise<{ member: string; score: number }[]>;
   getAttributionReport(timeframe: TimeFrame): Promise<Attribution[]>;
 }
+
+// ============================================
+// NOTE: Service instances should be imported directly from their respective files
+// e.g., import { campaignService } from './campaign.service';
+// Do NOT re-export here to avoid circular dependencies
+// ============================================

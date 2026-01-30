@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icons } from '../shared/Icons';
 import { useSettingsStore } from '../../store';
+import { getBestAIProvider } from '../../lib/api-keys';
 
 interface Message {
   id: string;
@@ -129,8 +130,6 @@ const renderMarkdown = (text: string) => {
 
   return <div className="space-y-1">{elements}</div>;
 };
-
-import { getBestAIProvider } from '../../lib/api-keys';
 
 // Get available AI config using shared utility
 const getAvailableAIConfig = () => getBestAIProvider();
