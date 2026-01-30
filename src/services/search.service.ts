@@ -6,49 +6,9 @@
 import { GoogleGenAI } from '@google/genai';
 import { SocialPost, Platform, TimeFrame, Sentiment, PostCategory } from '../types';
 import { SearchService, SearchParams } from './index';
-
-// API Keys - loaded from localStorage or environment (Vite-compatible)
-const getApiKey = (key: string): string => {
-  // First check localStorage (user-configured in Settings)
-  if (typeof window !== 'undefined') {
-    // Check nexus-api-keys first (where setup wizard saves)
-    const apiKeys = localStorage.getItem('nexus-api-keys');
-    if (apiKeys && key === 'apify') {
-      try {
-        const parsed = JSON.parse(apiKeys);
-        if (parsed.apifyKey) {
-          return parsed.apifyKey;
-        }
-      } catch (e) {
-        console.warn('Error parsing nexus-api-keys:', e);
-      }
-    }
-
-    // Check nexus-settings (where settings panel saves)
-    const settings = localStorage.getItem('nexus-settings');
-    if (settings) {
-      try {
-        const parsed = JSON.parse(settings);
-        if (key === 'gemini' && parsed.state?.aiConfig?.apiKey) {
-          return parsed.state.aiConfig.apiKey;
-        }
-        if (key === 'apify') {
-          const apifyIntegration = parsed.state?.integrations?.find((i: any) => i.id === 'apify');
-          if (apifyIntegration?.credentials?.apiKey) {
-            return apifyIntegration.credentials.apiKey;
-          }
-        }
-      } catch (e) {
-        console.warn('Error parsing settings from localStorage:', e);
-      }
-    }
-  }
-
-  // Fall back to environment variables (Vite syntax for browser)
-  // VITE_ prefix is required for client-side access
-  const envKey = `VITE_${key.toUpperCase()}_API_KEY`;
-  return (import.meta.env as Record<string, string>)[envKey] || '';
-};
+import { upsertProspect } from './db.service';
+import { getApiKey } from '../lib/api-keys';
+import type { Platform as DBPlatform } from '../lib/database.types';
 
 // Apify Actor IDs for different platforms
 const APIFY_ACTORS = {
@@ -88,6 +48,8 @@ export class PulseSearchService implements SearchService {
           const results = await this.searchWithGemini(params);
           if (results.length > 0) {
             console.log('Gemini search successful:', results.length, 'results');
+            // Save to prospects pipeline (async, don't block)
+            this.saveToProspects(results, params.keywords).catch(console.warn);
             return results;
           }
           console.log('Gemini returned 0 results');
@@ -103,6 +65,8 @@ export class PulseSearchService implements SearchService {
         console.log('Attempting Apify search via proxy...');
         const results = await this.searchWithApifyProxy(params);
         console.log('Apify search successful:', results.length, 'results');
+        // Save to prospects pipeline (async, don't block)
+        this.saveToProspects(results, params.keywords).catch(console.warn);
         return results;
       } catch (error) {
         console.warn('Apify search failed:', error);
@@ -114,6 +78,39 @@ export class PulseSearchService implements SearchService {
     const mockResults = this.generateMockResults(params.keywords, params.platforms, params.maxResults || 10);
     // Tag mock results so UI can show indicator
     return mockResults.map(post => ({ ...post, isMockData: true }));
+  }
+
+  // Save search results to prospects table for pipeline processing
+  private async saveToProspects(posts: SocialPost[], keywords: string | string[]): Promise<void> {
+    const keywordList = Array.isArray(keywords) ? keywords : [keywords];
+
+    for (const post of posts) {
+      try {
+        await upsertProspect({
+          external_id: post.id,
+          platform: post.platform as DBPlatform,
+          author_data: {
+            name: post.author.name,
+            handle: post.author.handle,
+            title: post.author.title,
+            avatarUrl: post.author.avatarUrl,
+            followers: post.author.followers,
+            isVerified: post.author.isVerified,
+          },
+          post_data: {
+            title: '',
+            body: post.content,
+            url: post.url,
+            engagement: post.engagement,
+          },
+          matched_keywords: keywordList,
+          state: 'discovered',
+        });
+      } catch (error) {
+        // Silently continue - prospect may already exist
+      }
+    }
+    console.log(`Saved ${posts.length} posts to prospects pipeline`);
   }
 
   // Use serverless proxy to avoid CORS issues

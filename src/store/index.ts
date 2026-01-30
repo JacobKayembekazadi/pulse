@@ -14,7 +14,7 @@ import {
 // APP STATE
 // ============================================
 
-type Tab = 'dashboard' | 'pulse' | 'accounts' | 'inbox' | 'campaigns' | 'compete' | 'library' | 'analytics';
+type Tab = 'dashboard' | 'pipeline' | 'pulse' | 'accounts' | 'inbox' | 'campaigns' | 'compete' | 'library' | 'analytics';
 
 interface AppState {
   // Navigation
@@ -92,48 +92,61 @@ interface PulseState {
   setFilters: (filters: PostFilters) => void;
 }
 
-export const usePulseStore = create<PulseState>()((set) => ({
-  keywords: [],
-  setKeywords: (keywords) => set({ keywords }),
-  addKeyword: (keyword) => set((state) => ({
-    keywords: state.keywords.includes(keyword) ? state.keywords : [...state.keywords, keyword]
-  })),
-  removeKeyword: (keyword) => set((state) => ({
-    keywords: state.keywords.filter(k => k !== keyword)
-  })),
+export const usePulseStore = create<PulseState>()(
+  persist(
+    (set) => ({
+      keywords: [],
+      setKeywords: (keywords) => set({ keywords }),
+      addKeyword: (keyword) => set((state) => ({
+        keywords: state.keywords.includes(keyword) ? state.keywords : [...state.keywords, keyword]
+      })),
+      removeKeyword: (keyword) => set((state) => ({
+        keywords: state.keywords.filter(k => k !== keyword)
+      })),
 
-  platforms: ['linkedin', 'twitter'],
-  setPlatforms: (platforms) => set({ platforms }),
-  togglePlatform: (platform) => set((state) => ({
-    platforms: state.platforms.includes(platform)
-      ? state.platforms.filter(p => p !== platform)
-      : [...state.platforms, platform]
-  })),
+      platforms: ['linkedin', 'twitter', 'reddit'],
+      setPlatforms: (platforms) => set({ platforms }),
+      togglePlatform: (platform) => set((state) => ({
+        platforms: state.platforms.includes(platform)
+          ? state.platforms.filter(p => p !== platform)
+          : [...state.platforms, platform]
+      })),
 
-  timeframe: 'live',
-  setTimeframe: (timeframe) => set({ timeframe }),
+      timeframe: '24h',
+      setTimeframe: (timeframe) => set({ timeframe }),
 
-  posts: [],
-  setPosts: (posts) => set({ posts }),
-  addPosts: (newPosts) => set((state) => {
-    const existingIds = new Set(state.posts.map(p => p.id));
-    const unique = newPosts.filter(p => !existingIds.has(p.id));
-    return { posts: [...unique, ...state.posts].slice(0, 100) };
-  }),
-  clearPosts: () => set({ posts: [] }),
+      posts: [],
+      setPosts: (posts) => set({ posts }),
+      addPosts: (newPosts) => set((state) => {
+        const existingIds = new Set(state.posts.map(p => p.id));
+        const unique = newPosts.filter(p => !existingIds.has(p.id));
+        return { posts: [...unique, ...state.posts].slice(0, 100) };
+      }),
+      clearPosts: () => set({ posts: [] }),
 
-  isLive: false,
-  setIsLive: (isLive) => set({ isLive }),
+      isLive: false,
+      setIsLive: (isLive) => set({ isLive }),
 
-  isSearching: false,
-  setIsSearching: (isSearching) => set({ isSearching }),
+      isSearching: false,
+      setIsSearching: (isSearching) => set({ isSearching }),
 
-  selectedPost: null,
-  setSelectedPost: (post) => set({ selectedPost: post }),
+      selectedPost: null,
+      setSelectedPost: (post) => set({ selectedPost: post }),
 
-  filters: {},
-  setFilters: (filters) => set({ filters }),
-}));
+      filters: {},
+      setFilters: (filters) => set({ filters }),
+    }),
+    {
+      name: 'nexus-pulse-state',
+      partialize: (state) => ({
+        // Only persist these fields (not posts which can be large)
+        keywords: state.keywords,
+        platforms: state.platforms,
+        timeframe: state.timeframe,
+      }),
+    }
+  )
+);
 
 // ============================================
 // ACCOUNTS STATE

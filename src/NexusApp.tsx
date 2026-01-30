@@ -15,6 +15,7 @@ import { CompetePage } from './components/compete/CompetePage';
 import { LibraryPage } from './components/library/LibraryPage';
 import { AnalyticsPage } from './components/analytics/AnalyticsPage';
 import { SetupWizard } from './components/onboarding/SetupWizard';
+import { HumanInbox } from './components/inbox/HumanInbox';
 import { storage } from './services/storage.service';
 import { Icons } from './components/shared/Icons';
 import { ToastContainer } from './components/shared/Toast';
@@ -156,6 +157,8 @@ function NexusApp() {
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard />;
+      case 'pipeline':
+        return <HumanInbox />;
       case 'pulse':
         return <PulseFeed />;
       case 'accounts':

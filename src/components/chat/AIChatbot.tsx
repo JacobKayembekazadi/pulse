@@ -130,34 +130,10 @@ const renderMarkdown = (text: string) => {
   return <div className="space-y-1">{elements}</div>;
 };
 
-// Get API key from all possible sources
-const getAvailableAIConfig = () => {
-  // Check env vars first
-  const envGemini = import.meta.env.VITE_GEMINI_API_KEY;
-  const envOpenAI = import.meta.env.VITE_OPENAI_API_KEY;
-  const envAnthropic = import.meta.env.VITE_ANTHROPIC_API_KEY;
+import { getBestAIProvider } from '../../lib/api-keys';
 
-  if (envGemini) return { provider: 'gemini' as const, apiKey: envGemini };
-  if (envOpenAI) return { provider: 'openai' as const, apiKey: envOpenAI };
-  if (envAnthropic) return { provider: 'anthropic' as const, apiKey: envAnthropic };
-
-  // Check localStorage (setup wizard saves here)
-  if (typeof window !== 'undefined') {
-    try {
-      const apiKeys = localStorage.getItem('nexus-api-keys');
-      if (apiKeys) {
-        const parsed = JSON.parse(apiKeys);
-        if (parsed.geminiKey) return { provider: 'gemini' as const, apiKey: parsed.geminiKey };
-        if (parsed.openaiKey) return { provider: 'openai' as const, apiKey: parsed.openaiKey };
-        if (parsed.anthropicKey) return { provider: 'anthropic' as const, apiKey: parsed.anthropicKey };
-      }
-    } catch (e) {
-      console.warn('Error reading API keys:', e);
-    }
-  }
-
-  return { provider: null, apiKey: null };
-};
+// Get available AI config using shared utility
+const getAvailableAIConfig = () => getBestAIProvider();
 
 const SYSTEM_CONTEXT = `You are NEXUS AI, a helpful assistant for a B2B social intelligence platform. You help users with:
 - Monitoring social media conversations (LinkedIn, Twitter, Reddit)
