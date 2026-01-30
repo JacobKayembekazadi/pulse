@@ -6,80 +6,9 @@
 import { GoogleGenAI } from '@google/genai';
 import { SocialPost, Platform, TimeFrame, Sentiment, PostCategory } from '../types';
 import { SearchService, SearchParams } from './index';
-
-// Debug logging helper
-const debug = import.meta.env.VITE_DEBUG === 'true';
-const log = (...args: any[]) => debug && console.log(...args);
-
-// API Keys - loaded from localStorage or environment (Vite-compatible)
-const getApiKey = (key: string): string => {
-  log(`[SearchService] Looking for ${key} API key...`);
-
-  // First check localStorage (user-configured in Settings)
-  if (typeof window !== 'undefined') {
-    // Check nexus-api-keys first (where setup wizard/settings saves Apify)
-    const apiKeys = localStorage.getItem('nexus-api-keys');
-    if (apiKeys && key === 'apify') {
-      try {
-        const parsed = JSON.parse(apiKeys);
-        log(`[SearchService] nexus-api-keys for apify:`, {
-          hasApifyKey: !!parsed.apifyKey,
-          keyPrefix: parsed.apifyKey ? parsed.apifyKey.substring(0, 10) + '...' : 'none'
-        });
-        if (parsed.apifyKey) {
-          log(`[SearchService] ✓ Found Apify key in nexus-api-keys`);
-          return parsed.apifyKey;
-        }
-      } catch (e) {
-        console.warn('[SearchService] Error parsing nexus-api-keys:', e);
-      }
-    }
-
-    // Check nexus-settings (where settings panel saves via Zustand)
-    const settings = localStorage.getItem('nexus-settings');
-    if (settings) {
-      try {
-        const parsed = JSON.parse(settings);
-        if (key === 'gemini') {
-          const hasKey = !!parsed.state?.aiConfig?.apiKey;
-          log(`[SearchService] nexus-settings for gemini:`, {
-            provider: parsed.state?.aiConfig?.provider,
-            hasApiKey: hasKey,
-            keyPrefix: hasKey ? parsed.state.aiConfig.apiKey.substring(0, 8) + '...' : 'none'
-          });
-          if (hasKey) {
-            log(`[SearchService] ✓ Found Gemini key in nexus-settings`);
-            return parsed.state.aiConfig.apiKey;
-          }
-        }
-        if (key === 'apify') {
-          const apifyIntegration = parsed.state?.integrations?.find((i: any) => i.id === 'apify');
-          log(`[SearchService] nexus-settings integrations for apify:`, {
-            hasIntegration: !!apifyIntegration,
-            hasCredentials: !!apifyIntegration?.credentials?.apiKey
-          });
-          if (apifyIntegration?.credentials?.apiKey) {
-            log(`[SearchService] ✓ Found Apify key in nexus-settings integrations`);
-            return apifyIntegration.credentials.apiKey;
-          }
-        }
-      } catch (e) {
-        console.warn('[SearchService] Error parsing settings from localStorage:', e);
-      }
-    }
-  }
-
-  // Fall back to environment variables (Vite syntax for browser)
-  // VITE_ prefix is required for client-side access
-  const envKey = `VITE_${key.toUpperCase()}_API_KEY`;
-  const envValue = (import.meta.env as Record<string, string>)[envKey] || '';
-  log(`[SearchService] Env var ${envKey}:`, envValue ? 'found' : 'not found');
-
-  if (!envValue) {
-    log(`[SearchService] ✗ No ${key} API key found anywhere`);
-  }
-  return envValue;
-};
+import { upsertProspect } from './db.service';
+import { getApiKey } from '../lib/api-keys';
+import type { Platform as DBPlatform } from '../lib/database.types';
 
 // Apify Actor IDs for different platforms
 const APIFY_ACTORS = {
@@ -105,15 +34,25 @@ export class PulseSearchService implements SearchService {
   }
 
   async search(params: SearchParams): Promise<SocialPost[]> {
+    const geminiKey = getApiKey('gemini');
+    const apifyKey = getApiKey('apify');
+
+    console.log('Search starting - Gemini configured:', !!geminiKey, '- Apify configured:', !!apifyKey);
+
     // Prioritize Gemini AI search (works from browser without CORS issues)
-    if (this.geminiClient || getApiKey('gemini')) {
+    if (geminiKey) {
       this.initializeClients();
       if (this.geminiClient) {
         try {
+          console.log('Attempting Gemini search...');
           const results = await this.searchWithGemini(params);
           if (results.length > 0) {
+            console.log('Gemini search successful:', results.length, 'results');
+            // Save to prospects pipeline (async, don't block)
+            this.saveToProspects(results, params.keywords).catch(console.warn);
             return results;
           }
+          console.log('Gemini returned 0 results');
         } catch (error) {
           console.warn('Gemini search failed:', error);
         }
@@ -121,17 +60,57 @@ export class PulseSearchService implements SearchService {
     }
 
     // Try Apify via serverless proxy (avoids CORS)
-    const apifyKey = getApiKey('apify');
     if (apifyKey) {
       try {
-        return await this.searchWithApifyProxy(params);
+        console.log('Attempting Apify search via proxy...');
+        const results = await this.searchWithApifyProxy(params);
+        console.log('Apify search successful:', results.length, 'results');
+        // Save to prospects pipeline (async, don't block)
+        this.saveToProspects(results, params.keywords).catch(console.warn);
+        return results;
       } catch (error) {
-        console.warn('Apify search failed, using mock data:', error);
+        console.warn('Apify search failed:', error);
       }
     }
 
-    // Last resort: mock data
-    return this.generateMockResults(params.keywords, params.platforms, params.maxResults || 10);
+    // Last resort: mock data (with indicator)
+    console.log('Using mock data - no API keys configured or all searches failed');
+    const mockResults = this.generateMockResults(params.keywords, params.platforms, params.maxResults || 10);
+    // Tag mock results so UI can show indicator
+    return mockResults.map(post => ({ ...post, isMockData: true }));
+  }
+
+  // Save search results to prospects table for pipeline processing
+  private async saveToProspects(posts: SocialPost[], keywords: string | string[]): Promise<void> {
+    const keywordList = Array.isArray(keywords) ? keywords : [keywords];
+
+    for (const post of posts) {
+      try {
+        await upsertProspect({
+          external_id: post.id,
+          platform: post.platform as DBPlatform,
+          author_data: {
+            name: post.author.name,
+            handle: post.author.handle,
+            title: post.author.title,
+            avatarUrl: post.author.avatarUrl,
+            followers: post.author.followers,
+            isVerified: post.author.isVerified,
+          },
+          post_data: {
+            title: '',
+            body: post.content,
+            url: post.url,
+            engagement: post.engagement,
+          },
+          matched_keywords: keywordList,
+          state: 'discovered',
+        });
+      } catch (error) {
+        // Silently continue - prospect may already exist
+      }
+    }
+    console.log(`Saved ${posts.length} posts to prospects pipeline`);
   }
 
   // Use serverless proxy to avoid CORS issues
@@ -449,21 +428,30 @@ export class PulseSearchService implements SearchService {
 
     const platformList = platforms.length > 0 ? platforms.join(', ') : 'LinkedIn, Twitter, Reddit';
 
-    const prompt = `Search for recent social media posts about: ${searchTerms}
+    const prompt = `You are a social media research assistant. Search for and return real social media posts about: "${searchTerms}"
 
-Platforms: ${platformList}
-Timeframe: ${timeframeMap[timeframe]}
-Find ${maxResults} real posts. Return JSON array:
-[{
-  "platform": "linkedin|twitter|reddit",
-  "author": {"name": "Full Name", "handle": "username", "title": "Job Title"},
-  "content": "The actual post text...",
-  "engagement": {"likes": 100, "comments": 20, "shares": 5},
-  "postedAt": "2024-01-15T10:30:00Z",
-  "url": "https://..."
-}]`;
+Look for posts on: ${platformList}
+Time period: ${timeframeMap[timeframe]}
+Number of posts needed: ${maxResults}
+
+IMPORTANT: Return ONLY a valid JSON array with no other text. Each post should have real content about the topic.
+Format:
+[
+  {
+    "platform": "linkedin",
+    "author": {"name": "Real Person Name", "handle": "username", "title": "Their Job Title"},
+    "content": "The actual text content of the post discussing ${searchTerms}...",
+    "engagement": {"likes": 150, "comments": 23, "shares": 8},
+    "postedAt": "2025-01-20T14:30:00Z",
+    "url": "https://linkedin.com/posts/example"
+  }
+]
+
+Return ${Math.min(maxResults, 10)} relevant posts as a JSON array:`;
 
     try {
+      console.log('Gemini search starting for:', searchTerms);
+
       const response = await this.geminiClient.models.generateContent({
         model: 'gemini-2.0-flash',
         contents: prompt,
@@ -472,14 +460,33 @@ Find ${maxResults} real posts. Return JSON array:
         }
       });
 
-      const text = response.text || '[]';
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      const text = response.text || '';
+      console.log('Gemini response length:', text.length);
+
+      // Try to extract JSON from response
+      const jsonMatch = text.match(/\[[\s\S]*?\]/);
 
       if (!jsonMatch) {
-        return this.generateMockResults(keywords, platforms, maxResults);
+        console.warn('No JSON array found in Gemini response, trying to parse as-is');
+        // Try parsing the whole response
+        try {
+          const parsed = JSON.parse(text.trim());
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((post: any, index: number) => this.normalizeGeminiResult(post, index));
+          }
+        } catch {
+          console.warn('Could not parse Gemini response as JSON');
+        }
+        throw new Error('Invalid response format from Gemini');
       }
 
       const rawPosts = JSON.parse(jsonMatch[0]);
+      console.log('Gemini returned', rawPosts.length, 'posts');
+
+      if (rawPosts.length === 0) {
+        throw new Error('Gemini returned empty results');
+      }
+
       return rawPosts.map((post: any, index: number) => this.normalizeGeminiResult(post, index));
     } catch (error) {
       console.error('Gemini search error:', error);

@@ -12,7 +12,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { action, actorId, runId, datasetId } = req.query;
-  const apiKey = req.headers['x-apify-token'] as string || process.env.VITE_APIFY_API_KEY;
+  // Check multiple env var names for flexibility
+  const apiKey = req.headers['x-apify-token'] as string
+    || process.env.APIFY_API_KEY
+    || process.env.VITE_APIFY_API_KEY;
 
   if (!apiKey) {
     return res.status(401).json({ error: 'No Apify API key provided' });

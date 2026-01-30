@@ -6,6 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icons } from '../shared/Icons';
 import { useSettingsStore } from '../../store';
+import { getBestAIProvider } from '../../lib/api-keys';
 
 interface Message {
   id: string;
@@ -14,83 +15,124 @@ interface Message {
   timestamp: Date;
 }
 
-// Debug logging helper
-const debug = import.meta.env.VITE_DEBUG === 'true';
-const log = (...args: any[]) => debug && console.log(...args);
+// Simple markdown renderer for chat messages
+const renderMarkdown = (text: string) => {
+  // Split into lines for processing
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeContent: string[] = [];
+  let listItems: string[] = [];
 
-// Get API key from all possible sources
-const getAvailableAIConfig = () => {
-  log('[AIChatbot] Checking for available AI config...');
+  const flushList = () => {
+    if (listItems.length > 0) {
+      elements.push(
+        <ul key={`list-${elements.length}`} className="list-disc list-inside space-y-1 my-2">
+          {listItems.map((item, i) => (
+            <li key={i} className="text-sm">{processInline(item)}</li>
+          ))}
+        </ul>
+      );
+      listItems = [];
+    }
+  };
 
-  // Check env vars first
-  const envGemini = import.meta.env.VITE_GEMINI_API_KEY;
-  const envOpenAI = import.meta.env.VITE_OPENAI_API_KEY;
-  const envAnthropic = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  const processInline = (line: string): React.ReactNode => {
+    // Process inline formatting: **bold**, *italic*, `code`
+    const parts: React.ReactNode[] = [];
+    let remaining = line;
+    let key = 0;
 
-  log('[AIChatbot] Env vars:', {
-    hasGemini: !!envGemini,
-    hasOpenAI: !!envOpenAI,
-    hasAnthropic: !!envAnthropic
+    while (remaining.length > 0) {
+      // Bold **text**
+      const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+      // Inline code `code`
+      const codeMatch = remaining.match(/`([^`]+)`/);
+
+      const matches = [
+        boldMatch ? { type: 'bold', match: boldMatch, index: boldMatch.index! } : null,
+        codeMatch ? { type: 'code', match: codeMatch, index: codeMatch.index! } : null,
+      ].filter(Boolean).sort((a, b) => a!.index - b!.index);
+
+      if (matches.length === 0) {
+        parts.push(remaining);
+        break;
+      }
+
+      const first = matches[0]!;
+      if (first.index > 0) {
+        parts.push(remaining.substring(0, first.index));
+      }
+
+      if (first.type === 'bold') {
+        parts.push(<strong key={key++} className="font-semibold">{first.match![1]}</strong>);
+      } else if (first.type === 'code') {
+        parts.push(<code key={key++} className="px-1.5 py-0.5 bg-white/10 rounded text-xs font-mono">{first.match![1]}</code>);
+      }
+
+      remaining = remaining.substring(first.index + first.match![0].length);
+    }
+
+    return parts.length === 1 ? parts[0] : <>{parts}</>;
+  };
+
+  lines.forEach((line, lineIndex) => {
+    // Code block
+    if (line.startsWith('```')) {
+      if (inCodeBlock) {
+        elements.push(
+          <pre key={`code-${elements.length}`} className="bg-black/50 rounded-lg p-3 my-2 overflow-x-auto">
+            <code className="text-xs font-mono text-green-400">{codeContent.join('\n')}</code>
+          </pre>
+        );
+        codeContent = [];
+        inCodeBlock = false;
+      } else {
+        flushList();
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeContent.push(line);
+      return;
+    }
+
+    // Bullet points
+    if (line.match(/^[\-\*]\s/)) {
+      listItems.push(line.replace(/^[\-\*]\s/, ''));
+      return;
+    }
+
+    // Numbered list
+    if (line.match(/^\d+\.\s/)) {
+      listItems.push(line.replace(/^\d+\.\s/, ''));
+      return;
+    }
+
+    // Flush list if we hit a non-list line
+    flushList();
+
+    // Empty line
+    if (line.trim() === '') {
+      elements.push(<div key={`br-${lineIndex}`} className="h-2" />);
+      return;
+    }
+
+    // Regular paragraph
+    elements.push(
+      <p key={`p-${lineIndex}`} className="text-sm">{processInline(line)}</p>
+    );
   });
 
-  if (envGemini) return { provider: 'gemini' as const, apiKey: envGemini };
-  if (envOpenAI) return { provider: 'openai' as const, apiKey: envOpenAI };
-  if (envAnthropic) return { provider: 'anthropic' as const, apiKey: envAnthropic };
+  flushList();
 
-  // Check localStorage - settings panel saves AI config to nexus-settings via Zustand
-  if (typeof window !== 'undefined') {
-    try {
-      // Check nexus-settings first (where Settings Panel saves via Zustand)
-      const settings = localStorage.getItem('nexus-settings');
-      log('[AIChatbot] nexus-settings raw:', settings ? 'found' : 'not found');
-
-      if (settings) {
-        const parsed = JSON.parse(settings);
-        const aiConfig = parsed.state?.aiConfig;
-        log('[AIChatbot] nexus-settings.state.aiConfig:', {
-          provider: aiConfig?.provider,
-          hasApiKey: !!aiConfig?.apiKey,
-          apiKeyPrefix: aiConfig?.apiKey ? aiConfig.apiKey.substring(0, 8) + '...' : 'none'
-        });
-
-        if (aiConfig?.apiKey) {
-          const providerMap: Record<string, 'gemini' | 'openai' | 'anthropic'> = {
-            'google': 'gemini',
-            'openai': 'openai',
-            'anthropic': 'anthropic'
-          };
-          log('[AIChatbot] ✓ Found API key in nexus-settings');
-          return {
-            provider: providerMap[aiConfig.provider] || 'gemini',
-            apiKey: aiConfig.apiKey
-          };
-        }
-      }
-
-      // Fallback: check nexus-api-keys (setup wizard might save here)
-      const apiKeys = localStorage.getItem('nexus-api-keys');
-      log('[AIChatbot] nexus-api-keys raw:', apiKeys ? 'found' : 'not found');
-
-      if (apiKeys) {
-        const parsed = JSON.parse(apiKeys);
-        log('[AIChatbot] nexus-api-keys contents:', {
-          hasGeminiKey: !!parsed.geminiKey,
-          hasOpenaiKey: !!parsed.openaiKey,
-          hasAnthropicKey: !!parsed.anthropicKey,
-          hasApifyKey: !!parsed.apifyKey
-        });
-        if (parsed.geminiKey) return { provider: 'gemini' as const, apiKey: parsed.geminiKey };
-        if (parsed.openaiKey) return { provider: 'openai' as const, apiKey: parsed.openaiKey };
-        if (parsed.anthropicKey) return { provider: 'anthropic' as const, apiKey: parsed.anthropicKey };
-      }
-    } catch (e) {
-      console.warn('[AIChatbot] Error reading API keys:', e);
-    }
-  }
-
-  log('[AIChatbot] ✗ No API key found');
-  return { provider: null, apiKey: null };
+  return <div className="space-y-1">{elements}</div>;
 };
+
+// Get available AI config using shared utility
+const getAvailableAIConfig = () => getBestAIProvider();
 
 const SYSTEM_CONTEXT = `You are NEXUS AI, a helpful assistant for a B2B social intelligence platform. You help users with:
 - Monitoring social media conversations (LinkedIn, Twitter, Reddit)
@@ -343,7 +385,11 @@ Respond helpfully and concisely:`;
                         : 'bg-white/10 text-gray-100 rounded-bl-md'
                     }`}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    {message.role === 'assistant' ? (
+                      renderMarkdown(message.content)
+                    ) : (
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    )}
                     <p className="text-[10px] opacity-50 mt-1">
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>

@@ -9,6 +9,7 @@ import { Icons } from './shared/Icons';
 // Navigation items
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: Icons.Dashboard },
+  { id: 'pipeline', label: 'Pipeline', icon: Icons.Layers },
   { id: 'accounts', label: 'Accounts', icon: Icons.Target },
   { id: 'inbox', label: 'Inbox', icon: Icons.Inbox },
   { id: 'campaigns', label: 'Campaigns', icon: Icons.Campaign },
